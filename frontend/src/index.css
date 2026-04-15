@@ -1,15 +1,32 @@
+/* ── WealthWise v4 — Kuber / Laxmi Theme ──────────────────────────────────── */
+/* Deep midnight maroon backgrounds, saffron-gold primary, temple emerald accent */
+
 :root {
-  --bg:      #0a0a0f;
-  --bg2:     #111118;
-  --bg3:     #1a1a24;
-  --border:  #2a2a38;
-  --gold:    #f0b429;
-  --gold2:   #ffd97d;
-  --emerald: #10d97e;
-  --red:     #ff5757;
-  --blue:    #4fa3f7;
-  --text:    #f0f0f8;
-  --muted:   #8888aa;
+  /* Backgrounds */
+  --bg:      #0e0806;
+  --bg2:     #160e0a;
+  --bg3:     #1f1410;
+  --border:  #3a2518;
+
+  /* Primary — Saffron Gold */
+  --gold:    #E8921A;
+  --gold2:   #FFB84D;
+  --goldDim: #C4780E;
+
+  /* Accent — Temple Emerald */
+  --emerald: #1DB873;
+  --emeraldDim: #158C56;
+
+  /* Status */
+  --red:     #E84040;
+  --blue:    #4A9EE8;
+  --purple:  #9B72CF;
+
+  /* Text */
+  --text:    #FFF3E6;
+  --muted:   #8C6A50;
+
+  /* Fonts */
   --font-display: 'Syne', sans-serif;
   --font-body:    'Inter', sans-serif;
 }
@@ -24,22 +41,32 @@ body {
   overflow-x: hidden;
 }
 
+/* Scrollbar */
 ::-webkit-scrollbar { width: 4px; }
 ::-webkit-scrollbar-track { background: var(--bg2); }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 
 input, select, textarea { outline: none; }
 
+/* Animations */
 @keyframes fadeUp {
-  from { opacity: 0; transform: translateY(16px); }
+  from { opacity: 0; transform: translateY(14px); }
   to   { opacity: 1; transform: translateY(0); }
 }
-
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50%       { opacity: 0.4; }
 }
+@keyframes shimmer {
+  0%   { background-position: -400% 0; }
+  100% { background-position:  400% 0; }
+}
+@keyframes dipGlow {
+  0%, 100% { box-shadow: 0 0 12px rgba(232,146,26,.15); }
+  50%       { box-shadow: 0 0 28px rgba(232,146,26,.35); }
+}
 
-@keyframes spin {
-  to { transform: rotate(360deg); }
+/* Diya glow on active cards */
+.diya-glow {
+  animation: dipGlow 3s ease-in-out infinite;
 }
