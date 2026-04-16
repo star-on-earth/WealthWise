@@ -1,0 +1,18 @@
+#reverse a array
+def reverse_array(arr):
+    return arr[::-1]
+#test the function
+arr = [1, 2, 3, 4, 5]
+print(reverse_array(arr))
+#reverse a string
+def reverse_string(s):
+    return s[::-1]
+#test the function
+s = "hello"
+print(reverse_string(s))
+#reverse a number
+def reverse_number(n):
+    return int(str(n)[::-1])
+#test the function
+n = 12345
+print(reverse_number(n))
