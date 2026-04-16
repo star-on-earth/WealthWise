@@ -1,6 +1,7 @@
 /**
- * api.js — WealthWise v3
- * All backend calls. No API key here.
+ * api.js — All backend calls go through here.
+ * The Anthropic API key NEVER touches the frontend.
+ * This file talks to YOUR backend (Railway/Render), which holds the key.
  */
 
 const BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -24,31 +25,24 @@ async function get(path) {
   return res.json();
 }
 
-/**
- * Full savings analysis with multi-income support.
- * profile: { incomes: {salary, rental, fd_interest, ...}, annual_savings, age, gender, occupation, is_senior }
- */
+/** Full savings analysis — tax + risk + portfolios */
 export async function analyze(profile) {
   return post('/analyze', profile);
 }
 
-/**
- * AI portfolio explanation (key stays on server).
- * Includes post-tax CAGR context and marginal slab rate.
- */
-export async function aiExplainPortfolio({ profile, portfolioName, portfolioAssets, riskLabel, marginalSlabRate }) {
-  return post('/ai/explain-portfolio', {
-    profile,
-    portfolio_name:   portfolioName,
-    portfolio_assets: portfolioAssets,
-    risk_label:       riskLabel,
-    marginal_slab_rate: marginalSlabRate || 0.30,
-  });
+/** AI explanation for a specific portfolio (key stays on server) */
+export async function aiExplainPortfolio({ profile, portfolioName, portfolioAssets, riskLabel }) {
+  return post('/ai/explain-portfolio', { profile, portfolio_name: portfolioName, portfolio_assets: portfolioAssets, risk_label: riskLabel });
 }
 
-/** AI free-form tax advisor */
+/** AI tax advisor — free-form question (key stays on server) */
 export async function aiTaxAdvisor({ question, userProfile }) {
   return post('/ai/tax-advisor', { question, user_profile: userProfile });
+}
+
+/** Quick tax breakdown for a given income */
+export async function getTaxInfo(income) {
+  return get(`/tax/${income}`);
 }
 
 /** Health check */
