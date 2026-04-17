@@ -280,4 +280,4 @@ WealthWise provides general financial information and tax estimates for educatio
 
 ---
 
-<div align="center">Built by Avrrodeep Banerjee · KIIT University · 2025</div>
+<div align="center">Built by Avrrodeep Banerjee</div>
