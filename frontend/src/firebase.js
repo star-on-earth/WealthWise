@@ -1,34 +1,19 @@
 /**
- * firebase.js
- * Firebase setup — Auth + Firestore.
- * All credentials come from VITE_ env vars — never hardcoded.
- *
- * Setup:
- *  1. Create project at https://console.firebase.google.com
- *  2. Add a Web app → copy config values
- *  3. Enable Authentication → Email/Password + Google
- *  4. Enable Firestore Database (start in production mode)
- *  5. Paste values into frontend/.env (see .env.example)
+ * firebase.js — v5
+ * NEW: recurring transactions, budget limits per category
  */
 
 import { initializeApp } from 'firebase/app';
 import {
-  getAuth,
-  GoogleAuthProvider,
-  signInWithPopup,
-  signInWithEmailAndPassword,
-  createUserWithEmailAndPassword,
-  signOut,
-  onAuthStateChanged,
+  getAuth, GoogleAuthProvider, signInWithPopup,
+  signInWithEmailAndPassword, createUserWithEmailAndPassword,
+  signOut, onAuthStateChanged,
 } from 'firebase/auth';
 import {
-  getFirestore,
-  doc, setDoc, getDoc, updateDoc,
+  getFirestore, doc, setDoc, getDoc, updateDoc,
   collection, addDoc, getDocs, deleteDoc,
   query, orderBy, serverTimestamp,
 } from 'firebase/firestore';
-
-// ─── INIT ─────────────────────────────────────────────────────────────────────
 
 const firebaseConfig = {
   apiKey:            import.meta.env.VITE_FIREBASE_API_KEY,
@@ -42,79 +27,88 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db   = getFirestore(app);
-const googleProvider = new GoogleAuthProvider();
+const gp = new GoogleAuthProvider();
 
-// ─── AUTH HELPERS ─────────────────────────────────────────────────────────────
+// ── Auth ──────────────────────────────────────────────────────────────────────
+export const loginWithGoogle   = () => signInWithPopup(auth, gp);
+export const loginWithEmail    = (e, p) => signInWithEmailAndPassword(auth, e, p);
+export const registerWithEmail = (e, p) => createUserWithEmailAndPassword(auth, e, p);
+export const logout            = () => signOut(auth);
+export const onAuthChange      = (cb) => onAuthStateChanged(auth, cb);
 
-export const loginWithGoogle = () => signInWithPopup(auth, googleProvider);
-
-export const loginWithEmail = (email, password) =>
-  signInWithEmailAndPassword(auth, email, password);
-
-export const registerWithEmail = (email, password) =>
-  createUserWithEmailAndPassword(auth, email, password);
-
-export const logout = () => signOut(auth);
-
-export const onAuthChange = (cb) => onAuthStateChanged(auth, cb);
-
-// ─── FIRESTORE HELPERS ────────────────────────────────────────────────────────
-
-/** Save / overwrite a user's financial profile + last analysis */
+// ── Profile ───────────────────────────────────────────────────────────────────
 export async function saveProfile(uid, data) {
-  await setDoc(doc(db, 'users', uid), {
-    ...data,
-    updatedAt: serverTimestamp(),
-  }, { merge: true });
+  await setDoc(doc(db,'users',uid), { ...data, updatedAt: serverTimestamp() }, { merge:true });
 }
-
-/** Load a user's saved profile */
 export async function loadProfile(uid) {
-  const snap = await getDoc(doc(db, 'users', uid));
-  return snap.exists() ? snap.data() : null;
+  const s = await getDoc(doc(db,'users',uid));
+  return s.exists() ? s.data() : null;
 }
 
-// ── Transactions (expense tracker) ──────────────────────────────────────────
-
-/** Add a transaction */
+// ── Transactions ──────────────────────────────────────────────────────────────
 export async function addTransaction(uid, tx) {
-  const ref = collection(db, 'users', uid, 'transactions');
-  return addDoc(ref, { ...tx, createdAt: serverTimestamp() });
+  return addDoc(collection(db,'users',uid,'transactions'), { ...tx, createdAt: serverTimestamp() });
 }
-
-/** Load all transactions, newest first */
 export async function loadTransactions(uid) {
-  const q = query(
-    collection(db, 'users', uid, 'transactions'),
-    orderBy('createdAt', 'desc')
-  );
-  const snap = await getDocs(q);
-  return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const q = query(collection(db,'users',uid,'transactions'), orderBy('createdAt','desc'));
+  const s = await getDocs(q);
+  return s.docs.map(d => ({ id:d.id, ...d.data() }));
+}
+export async function deleteTransaction(uid, id) {
+  await deleteDoc(doc(db,'users',uid,'transactions',id));
 }
 
-/** Delete a transaction */
-export async function deleteTransaction(uid, txId) {
-  await deleteDoc(doc(db, 'users', uid, 'transactions', txId));
-}
-
-// ── Goals ────────────────────────────────────────────────────────────────────
-
-/** Save / update a goal */
-export async function saveGoal(uid, goal) {
-  const ref = goal.id
-    ? doc(db, 'users', uid, 'goals', goal.id)
-    : doc(collection(db, 'users', uid, 'goals'));
-  await setDoc(ref, { ...goal, id: ref.id, updatedAt: serverTimestamp() });
+// ── Recurring Transactions (NEW v5) ───────────────────────────────────────────
+export async function saveRecurring(uid, rec) {
+  const ref = rec.id
+    ? doc(db,'users',uid,'recurring',rec.id)
+    : doc(collection(db,'users',uid,'recurring'));
+  await setDoc(ref, { ...rec, id:ref.id, updatedAt:serverTimestamp() });
   return ref.id;
 }
-
-/** Load all goals */
-export async function loadGoals(uid) {
-  const snap = await getDocs(collection(db, 'users', uid, 'goals'));
-  return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+export async function loadRecurring(uid) {
+  const s = await getDocs(collection(db,'users',uid,'recurring'));
+  return s.docs.map(d => ({ id:d.id, ...d.data() }));
+}
+export async function deleteRecurring(uid, id) {
+  await deleteDoc(doc(db,'users',uid,'recurring',id));
+}
+export async function bumpNextDue(uid, recId, nextDue) {
+  await updateDoc(doc(db,'users',uid,'recurring',recId), { nextDue });
 }
 
-/** Delete a goal */
-export async function deleteGoal(uid, goalId) {
-  await deleteDoc(doc(db, 'users', uid, 'goals', goalId));
+// ── Budget Limits (NEW v5) ────────────────────────────────────────────────────
+export async function saveBudgetLimits(uid, limits) {
+  await setDoc(doc(db,'users',uid,'settings','budgetLimits'),
+    { limits, updatedAt:serverTimestamp() });
+}
+export async function loadBudgetLimits(uid) {
+  const s = await getDoc(doc(db,'users',uid,'settings','budgetLimits'));
+  return s.exists() ? s.data().limits : {};
+}
+
+// ── Goals ─────────────────────────────────────────────────────────────────────
+export async function saveGoal(uid, goal) {
+  const ref = goal.id
+    ? doc(db,'users',uid,'goals',goal.id)
+    : doc(collection(db,'users',uid,'goals'));
+  await setDoc(ref, { ...goal, id:ref.id, updatedAt:serverTimestamp() });
+  return ref.id;
+}
+export async function loadGoals(uid) {
+  const s = await getDocs(collection(db,'users',uid,'goals'));
+  return s.docs.map(d => ({ id:d.id, ...d.data() }));
+}
+export async function deleteGoal(uid, id) {
+  await deleteDoc(doc(db,'users',uid,'goals',id));
+}
+
+// ── Next-due calculator ───────────────────────────────────────────────────────
+export function calcNextDue(fromDate, frequency) {
+  const d = new Date(fromDate);
+  if (frequency === 'daily')   d.setDate(d.getDate() + 1);
+  else if (frequency === 'weekly')  d.setDate(d.getDate() + 7);
+  else if (frequency === 'yearly')  d.setFullYear(d.getFullYear() + 1);
+  else                              d.setMonth(d.getMonth() + 1); // monthly default
+  return d.toISOString().slice(0, 10);
 }
