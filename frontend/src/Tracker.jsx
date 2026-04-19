@@ -42,6 +42,7 @@ const EXPENSE_CATS = [
   { key:'shopping',   label:'Shopping',           color:'#ff7f7f', icon:'🛍️' },
   { key:'investment', label:'Investments',        color:'#1DB873', icon:'📈' },
   { key:'insurance',  label:'Insurance Premiums', color:'#FFB84D', icon:'🛡️' },
+  { key:'misc',       label:'Misc / Personal',    color:'#94a3b8', icon:'🔀' },
   { key:'other',      label:'Other',              color:'#6ee7b7', icon:'📦' },
 ];
 const INCOME_CATS = [
@@ -90,6 +91,9 @@ const S = {
   btnGreen: { background:'transparent', color:'var(--emerald)', border:'1px solid var(--emerald)', borderRadius:9, padding:'8px 16px', fontSize:13, fontWeight:600, cursor:'pointer' },
   btnRed:   { background:'rgba(232,64,64,.15)', color:'var(--red)', border:'1px solid rgba(232,64,64,.3)', borderRadius:7, padding:'4px 9px', fontSize:12, cursor:'pointer' },
   btnBlue:  { background:'rgba(74,158,232,.15)', color:'#4A9EE8', border:'1px solid rgba(74,158,232,.3)', borderRadius:8, padding:'7px 14px', fontSize:12, fontWeight:600, cursor:'pointer' },
+  btnEdit:  { background:'rgba(155,114,207,.15)', color:'#9B72CF', border:'1px solid rgba(155,114,207,.3)', borderRadius:7, padding:'4px 9px', fontSize:12, cursor:'pointer' },
+  modal:    { position:'fixed', inset:0, background:'rgba(0,0,0,.75)', zIndex:300, display:'flex', alignItems:'center', justifyContent:'center', padding:16 },
+  modalBox: { background:'var(--bg2)', border:'1px solid var(--border)', borderRadius:16, padding:24, width:'100%', maxWidth:440, maxHeight:'85vh', overflowY:'auto' },
   tabRow:   { display:'flex', gap:8, marginBottom:14, flexWrap:'wrap' },
   tab:      a => ({ padding:'7px 15px', borderRadius:8, cursor:'pointer', fontSize:13, fontWeight:600, fontFamily:'var(--font-body)', border: a ? '1px solid var(--gold)':'1px solid var(--border)', background: a ? 'rgba(232,146,26,.12)':'var(--bg3)', color: a ? 'var(--gold)':'var(--muted)' }),
   kpi:      c => ({ flex:1, minWidth:100, background:`${c}12`, border:`1px solid ${c}30`, borderRadius:11, padding:'11px 14px' }),
@@ -123,7 +127,7 @@ function EmptyState({ icon, title, sub, action, onAction }) {
 }
 
 /** Single transaction row */
-function TxRow({ tx, onDelete }) {
+function TxRow({ tx, onDelete, onEdit }) {
   const meta = CAT_MAP[tx.category] || { label:tx.category, color:'#888', icon:'📦' };
   const ded  = DEDUCTION_MAP[tx.category];
   return (
@@ -138,10 +142,11 @@ function TxRow({ tx, onDelete }) {
         <div style={{ fontSize:11, color:'var(--muted)' }}>{tx.note || '—'} · {tx.date}</div>
       </div>
       <div style={{ fontFamily:'var(--font-display)', fontWeight:700, fontSize:14,
-        color: tx.type==='income' ? 'var(--emerald)':'var(--red)', marginRight:8 }}>
+        color: tx.type==='income' ? 'var(--emerald)':'var(--red)', marginRight:6 }}>
         {tx.type==='income' ? '+' : '-'}{fmtINR(tx.amount)}
       </div>
-      <button style={S.btnRed} onClick={() => onDelete(tx.id)}>✕</button>
+      <button style={S.btnEdit} onClick={() => onEdit(tx)} title="Edit">✏️</button>
+      <button style={{ ...S.btnRed, marginLeft:4 }} onClick={() => onDelete(tx.id)}>✕</button>
     </div>
   );
 }
@@ -356,37 +361,318 @@ function parseImportedCSV(text) {
 }
 
 /** Auto-categorise from merchant name in transaction description */
+/** Edit transaction modal — module scope for stable identity */
+function EditModal({ tx, onSave, onClose }) {
+  const [form, setForm] = React.useState({
+    amount:   tx.amount,
+    type:     tx.type,
+    category: tx.category,
+    note:     tx.note || '',
+    date:     tx.date,
+  });
+  const set = k => e => setForm(f => ({ ...f, [k]: e.target.value }));
+  const cats = form.type === 'income' ? INCOME_CATS : EXPENSE_CATS;
+
+  return (
+    <div style={S.modal} onClick={onClose}>
+      <div style={S.modalBox} onClick={e => e.stopPropagation()}>
+        <div style={{ fontFamily:'var(--font-display)', fontSize:17, fontWeight:700, color:'var(--text)', marginBottom:18 }}>
+          ✏️ Edit Transaction
+        </div>
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:12 }}>
+          <div>
+            <label style={S.label}>Type</label>
+            <select style={S.select} value={form.type} onChange={e => {
+              setForm(f => ({ ...f, type:e.target.value, category: e.target.value==='income'?'salary':'food' }));
+            }}>
+              <option value="expense">Expense</option>
+              <option value="income">Income</option>
+            </select>
+          </div>
+          <div>
+            <label style={S.label}>Amount (₹)</label>
+            <input style={S.input} type="number" inputMode="numeric" value={form.amount} onChange={set('amount')} />
+          </div>
+          <div>
+            <label style={S.label}>Category</label>
+            <select style={S.select} value={form.category} onChange={set('category')}>
+              {cats.map(c => <option key={c.key} value={c.key}>{c.icon} {c.label}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={S.label}>Date</label>
+            <input style={S.input} type="date" value={form.date} onChange={set('date')} />
+          </div>
+        </div>
+        <div style={{ marginBottom:16 }}>
+          <label style={S.label}>Note</label>
+          <input style={S.input} type="text" placeholder="Add a note..." value={form.note} onChange={set('note')} />
+        </div>
+        <div style={{ display:'flex', gap:10 }}>
+          <button style={S.btn} onClick={() => onSave({ ...tx, ...form, amount:+form.amount })}>
+            Save Changes
+          </button>
+          <button style={S.btnSm} onClick={onClose}>Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function autoCategory(desc, type) {
   const d = (desc || '').toLowerCase();
+
   if (type === 'income') {
-    if (/neft|rtgs|imps|salary|sal\b|kvbl|payroll/.test(d))           return 'salary';
-    if (/int payout|interest|dividend|cashback|bhim|reward/.test(d))  return 'returns';
-    if (/cdm|cash deposit/.test(d))                                    return 'other_inc';
+    if (/neft|rtgs|imps|salary|sal\b|kvbl|payroll/.test(d))          return 'salary';
+    if (/int payout|interest|dividend|cashback|bhim|reward/.test(d)) return 'returns';
+    if (/cdm|cash deposit/.test(d))                                   return 'other_inc';
     return 'other_inc';
   }
-  if (/zomato|swiggy|eternal|mio amore|yara|khabar|blinkit|zepto|bigbasket|grofer|dunzo|food/.test(d)) return 'food';
-  if (/irctc|rapido|roppen|ola\b|uber|redbus|makemytrip|goibibo|metro|train|flight|bus\b/.test(d))     return 'transport';
-  if (/hospital|clinic|pharmacy|medical|kiit hos|apollo|fortis|max hosp|doctor|diagnostic/.test(d))    return 'health';
-  if (/claude|subscription|netflix|amazon prime|hotstar|spotify|youtube|jio\b|airtel|vi\b|bsnl|reliance|loylty/.test(d)) return 'utilities';
-  if (/amazon|flipkart|myntra|ajio|nykaa|meesho|snapdeal|shop|mall/.test(d))                           return 'shopping';
-  if (/lic\b|insurance|premium|policy|bajaj allianz|hdfc life|icici pru|term plan/.test(d))            return 'insurance';
-  if (/sip\b|mutual fund|mf\b|zerodha|groww|upstox|nse|bse|demat/.test(d))                             return 'investment';
-  if (/emi\b|housing|rent\b|society|flat|property|home loan/.test(d))                                  return 'rent';
-  if (/school|college|university|coaching|udemy|coursera|byju|unacademy|fee\b/.test(d))                return 'education';
-  if (/hotel|lodge|oyo|goibibo stay/.test(d))                                                           return 'family';
-  if (/sms charge|bank charge|penalty|fine\b/.test(d))                                                 return 'utilities';
+
+  // ── Food — includes KIIT Hospitality and all food/dining ──────────────────
+  if (/zomato|swiggy|eternal|mio amore|yara cafe|khabar|blinkit|zepto|bigbasket|grofer|dunzo|
+       dominos|mcdonalds|kfc|subway|pizza|burger|restaurant|cafe|dhaba|canteen|
+       kiit hospitality|hotel sw|hotel\b|food|eat|snack/.test(d.replace(/\n/g,''))) return 'food';
+
+  // ── Transport ─────────────────────────────────────────────────────────────
+  if (/irctc|rapido|roppen|ola\b|uber|redbus|makemytrip|goibibo|metro|train|flight|
+       bus\b|indigo|air india|spicejet|akasa|cleartrip|abhibus|paytm travel/.test(d.replace(/\n/g,''))) return 'transport';
+
+  // ── Health ────────────────────────────────────────────────────────────────
+  if (/hospital|clinic|pharmacy|medical|apollo|fortis|max hosp|manipal|narayana|
+       netmeds|pharmeasy|1mg|doctor|diagnostic|pathology|kiit hos|lab\b/.test(d.replace(/\n/g,''))) return 'health';
+
+  // ── Utilities (bills, subscriptions, telecom) ─────────────────────────────
+  if (/claude|subscription|netflix|amazon prime|hotstar|disney|spotify|youtube|
+       jio\b|airtel|vi\b|bsnl|tata sky|dish tv|electricity|water board|bescom|
+       cesc|tata power|loylty|loyltyrewardz/.test(d.replace(/\n/g,''))) return 'utilities';
+
+  // ── Shopping ──────────────────────────────────────────────────────────────
+  if (/amazon|flipkart|myntra|ajio|nykaa|meesho|snapdeal|reliance digital|croma|
+       jiomart|tata cliq/.test(d.replace(/\n/g,''))) return 'shopping';
+
+  // ── Insurance ─────────────────────────────────────────────────────────────
+  if (/lic\b|insurance|premium|policy|bajaj allianz|hdfc life|icici pru|
+       star health|niva bupa|term plan|sbi life|kotak life/.test(d.replace(/\n/g,''))) return 'insurance';
+
+  // ── Investments ───────────────────────────────────────────────────────────
+  if (/sip\b|mutual fund|mf\b|zerodha|groww|upstox|nse|bse|demat|
+       smallcase|coin\b|paytm money/.test(d.replace(/\n/g,''))) return 'investment';
+
+  // ── Rent / EMI ────────────────────────────────────────────────────────────
+  if (/emi\b|housing|rent\b|society|flat|property|home loan/.test(d)) return 'rent';
+
+  // ── Education ─────────────────────────────────────────────────────────────
+  if (/school|college|university|coaching|udemy|coursera|byju|unacademy|
+       vedantu|tuition|fee\b/.test(d.replace(/\n/g,''))) return 'education';
+
+  // ── Misc / Personal — all P2P UPI transfers between individuals ──────────
+  // UPI/DR or UPI/CR to a person name (contains /Mr |/Ms |common names pattern)
+  // or no recognisable merchant → misc
+  if (/upi\/(dr|cr)\/\d+\/[a-z]/i.test(desc)) {
+    // Check if it matches any known merchant already handled above
+    // If we're here, it's a personal transfer → misc
+    return 'misc';
+  }
+
+  // ── Bank charges ──────────────────────────────────────────────────────────
+  if (/sms charge|bank charge|penalty|fine\b|othpg/.test(d)) return 'utilities';
+
   return 'other';
 }
 
-// ─── MAIN COMPONENT ───────────────────────────────────────────────────────────
+// ─── PDF TEXT PARSERS — 8 MAJOR INDIAN BANKS ─────────────────────────────────
+// Each parser handles that bank's specific column layout from PDF text extraction.
 
-export default function Tracker() {
+function parsePDFText(fullText) {
+  const lines = fullText.split('\n').map(l => l.trim()).filter(Boolean);
+  const j = fullText.toLowerCase();
+  if (j.includes('state bank of india') || j.includes('your opening balance') || j.includes('sbin'))
+    return parseSBILines(lines);
+  if (j.includes('karur vysya') || j.includes('kvb') || j.includes('brn code'))
+    return parseKVBLines(lines);
+  if (j.includes('hdfc bank'))    return parseHDFCLines(lines);
+  if (j.includes('icici bank'))   return parseICICILines(lines);
+  if (j.includes('axis bank'))    return parseAxisLines(lines);
+  if (j.includes('kotak mahindra') || j.includes('kotak bank')) return parseKotakLines(lines);
+  if (j.includes('punjab national') || j.includes('pnb'))       return parsePNBLines(lines);
+  if (j.includes('bank of baroda') || j.includes('bob'))        return parseBOBLines(lines);
+  return parseGenericPDFLines(lines);
+}
+
+function mkTx(date, desc, amount, type) {
+  return {
+    date: normDate(date), amount, type,
+    category: autoCategory(desc, type),
+    note: (desc || '').replace(/\s+/g, ' ').trim().slice(0, 80),
+    id: Date.now().toString() + Math.random(),
+  };
+}
+
+// SBI: "01-02-26 UPI/CR/603225217066/SHITHAN /SBIN/... - 100.00 0 3464.32"
+function parseSBILines(lines) {
+  const res = [];
+  const re = /^(\d{2}-\d{2}-\d{2})\s+(.+?)\s+-\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)$/;
+  for (const line of lines) {
+    const m = line.match(re); if (!m) continue;
+    const cr = parseFloat(m[3]), dr = parseFloat(m[4]);
+    if (!cr && !dr) continue;
+    const type = cr > 0 && dr === 0 ? 'income' : 'expense';
+    res.push(mkTx(m[1], m[2].trim(), type === 'income' ? cr : dr, type));
+  }
+  return res;
+}
+
+// KVB: "17/03/2026 17/03/2026 2101 NEFT DR-... [debit] [credit] balance"
+function parseKVBLines(lines) {
+  const res = [];
+  const re  = /^(\d{2}\/\d{2}\/\d{4})\s+\d{2}\/\d{2}\/\d{4}\s+\d+\s+(.+?)\s+([\d,]+\.\d{2})\s+([\d,]+\.\d{2})\s+([\d,]+\.\d{2})$/;
+  const re2 = /^(\d{2}\/\d{2}\/\d{4})\s+\d{2}\/\d{2}\/\d{4}\s+\d+\s+(.+?)\s+([\d,]+\.\d{2})\s+([\d,]+\.\d{2})$/;
+  for (const line of lines) {
+    let m = line.match(re);
+    if (m) {
+      const desc = m[2].trim();
+      const a = parseFloat(m[3].replace(/,/g, '')), b = parseFloat(m[4].replace(/,/g, ''));
+      const type = /credit interest|int payout|neft dr/.test(desc.toLowerCase()) ? 'income' : 'expense';
+      const amount = type === 'income' ? (b || a) : a;
+      if (amount) res.push(mkTx(m[1], desc, amount, type));
+      continue;
+    }
+    m = line.match(re2);
+    if (m) {
+      const desc = m[2].trim(), a = parseFloat(m[3].replace(/,/g, ''));
+      if (!a) continue;
+      const type = /credit interest|int payout|neft dr/.test(desc.toLowerCase()) ? 'income' : 'expense';
+      res.push(mkTx(m[1], desc, a, type));
+    }
+  }
+  return res;
+}
+
+// HDFC: Date | Narration | Value Dat | Debit | Credit | Chq | Closing
+function parseHDFCLines(lines) {
+  const res = [];
+  const re = /^(\d{2}\/\d{2}\/\d{4})\s+(.+?)\s+\d{2}\/\d{2}\/\d{4}\s+([\d,.]*)\s+([\d,.]*)/;
+  for (const line of lines) {
+    const m = line.match(re); if (!m) continue;
+    const dr = parseFloat((m[3] || '').replace(/,/g, '')) || 0;
+    const cr = parseFloat((m[4] || '').replace(/,/g, '')) || 0;
+    if (!dr && !cr) continue;
+    const type = cr > 0 && dr === 0 ? 'income' : 'expense';
+    res.push(mkTx(m[1], m[2].trim(), type === 'income' ? cr : dr, type));
+  }
+  return res;
+}
+
+// ICICI: Transaction Date | Remarks | Withdrawal Amt | Deposit Amt | Balance
+function parseICICILines(lines) {
+  const res = [];
+  const re = /^(\d{2}\/\d{2}\/\d{4})\s+(.+?)\s+([\d,.]*)\s+([\d,.]*)\s+([\d,.]+)$/;
+  for (const line of lines) {
+    const m = line.match(re); if (!m) continue;
+    const wd = parseFloat((m[3] || '').replace(/,/g, '')) || 0;
+    const dp = parseFloat((m[4] || '').replace(/,/g, '')) || 0;
+    if (!wd && !dp) continue;
+    const type = dp > 0 && wd === 0 ? 'income' : 'expense';
+    res.push(mkTx(m[1], m[2].trim(), type === 'income' ? dp : wd, type));
+  }
+  return res;
+}
+
+// Axis Bank: Chq Date | Transaction Details | Chq No | Debit | Credit | Balance
+// Format: "01-04-2026  UPI-ZOMATO-ZOMATO@AXISB-HDFC0000123  -  87.00  -  2500.00"
+function parseAxisLines(lines) {
+  const res = [];
+  const re = /^(\d{2}-\d{2}-\d{4})\s+(.+?)\s+[-\d]*\s+([\d,.]*)\s+([\d,.]*)\s+([\d,.]+)$/;
+  for (const line of lines) {
+    const m = line.match(re); if (!m) continue;
+    const dr = parseFloat((m[3] || '').replace(/,/g, '')) || 0;
+    const cr = parseFloat((m[4] || '').replace(/,/g, '')) || 0;
+    if (!dr && !cr) continue;
+    const type = cr > 0 && dr === 0 ? 'income' : 'expense';
+    res.push(mkTx(m[1], m[2].trim(), type === 'income' ? cr : dr, type));
+  }
+  return res;
+}
+
+// Kotak Mahindra: Date | Description | Debit | Credit | Balance
+// Format: "01/04/2026  UPI-ZOMATO  500.00    28000.00"
+function parseKotakLines(lines) {
+  const res = [];
+  const re = /^(\d{2}\/\d{2}\/\d{4})\s+(.+?)\s+([\d,.]+)\s+([\d,.]*)\s*([\d,.]+)$/;
+  const re2 = /^(\d{2}\/\d{2}\/\d{4})\s+(.+?)\s+([\d,.]*)\s+([\d,.]+)\s*([\d,.]+)$/;
+  for (const line of lines) {
+    let m = line.match(re);
+    if (!m) m = line.match(re2);
+    if (!m) continue;
+    const a = parseFloat((m[3] || '').replace(/,/g, '')) || 0;
+    const b = parseFloat((m[4] || '').replace(/,/g, '')) || 0;
+    if (!a && !b) continue;
+    // Kotak: if only one amount, check context for dr/cr
+    const isCredit = /cr\b|credit|received/.test(line.toLowerCase());
+    const type = (b > 0 && !a) || isCredit ? 'income' : 'expense';
+    const amount = type === 'income' ? (b || a) : (a || b);
+    res.push(mkTx(m[1], m[2].trim(), amount, type));
+  }
+  return res;
+}
+
+// Punjab National Bank (PNB): Date | Narration | Withdrawal | Deposit | Balance
+// Format: "01/04/2026  UPI/CR/...  -  2000.00  25000.00"
+function parsePNBLines(lines) {
+  const res = [];
+  const re = /^(\d{2}\/\d{2}\/\d{4})\s+(.+?)\s+([\d,.]*)\s+([\d,.]*)\s+([\d,.]+)$/;
+  for (const line of lines) {
+    const m = line.match(re); if (!m) continue;
+    const wd = parseFloat((m[3] || '').replace(/,/g, '')) || 0;
+    const dp = parseFloat((m[4] || '').replace(/,/g, '')) || 0;
+    if (!wd && !dp) continue;
+    const type = dp > 0 && wd === 0 ? 'income' : 'expense';
+    res.push(mkTx(m[1], m[2].trim(), type === 'income' ? dp : wd, type));
+  }
+  return res;
+}
+
+// Bank of Baroda (BOB): Date | Particulars | Debit | Credit | Balance
+// Format: "01-04-2026  UPI/DR/ZOMATO  87.00  -  15000.00"
+function parseBOBLines(lines) {
+  const res = [];
+  const re = /^(\d{2}-\d{2}-\d{4})\s+(.+?)\s+([\d,.]*)\s+([\d,.]*)\s+([\d,.]+)$/;
+  for (const line of lines) {
+    const m = line.match(re); if (!m) continue;
+    const dr = parseFloat((m[3] || '').replace(/,/g, '')) || 0;
+    const cr = parseFloat((m[4] || '').replace(/,/g, '')) || 0;
+    if (!dr && !cr) continue;
+    const type = cr > 0 && dr === 0 ? 'income' : 'expense';
+    res.push(mkTx(m[1], m[2].trim(), type === 'income' ? cr : dr, type));
+  }
+  return res;
+}
+
+// Generic fallback: looks for a date at the start of any line + numeric amounts
+function parseGenericPDFLines(lines) {
+  const res = [];
+  const dateRe = /^(\d{2}[\/\-]\d{2}[\/\-]\d{2,4})/;
+  const amtRe  = /([\d,]+\.\d{2})/g;
+  for (const line of lines) {
+    const dm = line.match(dateRe); if (!dm) continue;
+    const amounts = [...line.matchAll(amtRe)].map(m => parseFloat(m[1].replace(/,/g, '')));
+    if (amounts.length < 2) continue;
+    const desc = line.replace(dateRe, '').replace(/([\d,]+\.\d{2})/g, '').trim().slice(0, 80);
+    const type = /cr\b|credit|deposit|received/.test(line.toLowerCase()) ? 'income' : 'expense';
+    res.push(mkTx(dm[1], desc, amounts[0], type));
+  }
+  return res;
+}
   const { user } = useAuth();
 
   // ── Core state ──────────────────────────────────────────────────────────────
   const [txs,          setTxs]          = useState([]);
   const [recurring,    setRecurring]    = useState([]);
-  const [budgets,      setBudgets]      = useState({});  // { catKey: limitAmount }
+  const [budgets,      setBudgets]      = useState({});
+
+  // ── Edit state ──────────────────────────────────────────────────────────────
+  const [editingTx,    setEditingTx]    = useState(null); // tx object being edited
 
   // ── View state ──────────────────────────────────────────────────────────────
   const [activeSection, setActiveSection] = useState('dashboard'); // dashboard|add|recurring|budgets|import
@@ -419,12 +705,15 @@ export default function Tracker() {
   const [importing,    setImporting]    = useState(false);
   const [importRows,   setImportRows]   = useState([]);
   const [importStatus, setImportStatus] = useState('');
+  const [importMode,   setImportMode]   = useState('csv'); // 'csv' | 'pdf'
+  const [pdfReady,     setPdfReady]     = useState(false);
 
   // ── AI ───────────────────────────────────────────────────────────────────────
   const [aiTip,     setAiTip]     = useState('');
   const [aiLoading, setAiLoading] = useState(false);
 
   const fileRef = useRef(null);
+  const pdfRef  = useRef(null);
 
   const focusGold = useCallback(e => e.target.style.borderColor = 'var(--gold)', []);
   const blurReset = useCallback(e => e.target.style.borderColor = 'var(--border)', []);
@@ -550,6 +839,17 @@ export default function Tracker() {
     setRecurring(u); if (!user) lsSave(LS_REC_KEY, u);
   };
 
+  const saveTxEdit = async (updated) => {
+    if (user) {
+      await deleteTransaction(user.uid, updated.id);
+      await addTransaction(user.uid, updated);
+    }
+    const u = txs.map(t => t.id === updated.id ? updated : t);
+    setTxs(u);
+    if (!user) lsSave(LS_TX_KEY, u);
+    setEditingTx(null);
+  };
+
   // ─────────────────────────────────────────────────────────────────────────────
   // RECURRING TEMPLATE — ADD
   // ─────────────────────────────────────────────────────────────────────────────
@@ -579,40 +879,104 @@ export default function Tracker() {
   }, [budgets, user]);
 
   // ─────────────────────────────────────────────────────────────────────────────
+  // PDF.JS LOADER (CDN, loads once on mount)
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  useEffect(() => {
+    if (window.pdfjsLib) { setPdfReady(true); return; }
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+    s.onload = () => {
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+        'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+      setPdfReady(true);
+    };
+    s.onerror = () => console.warn('PDF.js failed to load');
+    document.head.appendChild(s);
+  }, []);
+
+  // ─────────────────────────────────────────────────────────────────────────────
   // CSV IMPORT
   // ─────────────────────────────────────────────────────────────────────────────
 
   const handleFileChange = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    setImportStatus('Parsing...');
+    setImportStatus('Parsing CSV...'); setImportRows([]);
     const reader = new FileReader();
     reader.onload = (ev) => {
       const rows = parseImportedCSV(ev.target.result);
       setImportRows(rows);
-      setImportStatus(`Found ${rows.length} transactions. Review and confirm import.`);
+      setImportStatus(rows.length
+        ? `Found ${rows.length} transactions. Review and confirm.`
+        : 'No transactions found. Check the file format below.');
     };
     reader.onerror = () => setImportStatus('Error reading file.');
     reader.readAsText(file);
   };
 
+  // ─────────────────────────────────────────────────────────────────────────────
+  // PDF IMPORT
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  const handlePDFChange = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!pdfReady || !window.pdfjsLib) {
+      setImportStatus('PDF reader still loading — wait a moment and try again.');
+      return;
+    }
+    setImportStatus('Reading PDF...'); setImportRows([]);
+    try {
+      const buf = await file.arrayBuffer();
+      const pdf = await window.pdfjsLib.getDocument({ data: buf }).promise;
+      let fullText = '';
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const pg      = await pdf.getPage(i);
+        const content = await pg.getTextContent();
+        // Group items by Y coordinate to reconstruct lines
+        const byY = {};
+        content.items.forEach(item => {
+          const y = Math.round(item.transform[5]);
+          if (!byY[y]) byY[y] = [];
+          byY[y].push(item.str);
+        });
+        Object.keys(byY).map(Number).sort((a, b) => b - a)
+          .forEach(y => { fullText += byY[y].join(' ') + '\n'; });
+      }
+      const parsed = parsePDFText(fullText);
+      if (parsed.length === 0) {
+        setImportStatus('No transactions detected in this PDF. Try exporting as CSV from your bank instead.');
+      } else {
+        setImportRows(parsed);
+        setImportStatus(`Found ${parsed.length} transactions. Auto-categorised from merchant names. Review and confirm.`);
+      }
+    } catch (err) {
+      setImportStatus(`PDF error: ${err.message}`);
+    }
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // CONFIRM IMPORT (shared for CSV + PDF)
+  // ─────────────────────────────────────────────────────────────────────────────
+
   const confirmImport = async () => {
     if (!importRows.length) return;
-    setImportStatus('Importing...');
+    setImportStatus(`Importing ${importRows.length} transactions...`);
     const newTxs = [...txs];
     for (const tx of importRows) {
       if (user) {
         const ref = await addTransaction(user.uid, tx);
-        newTxs.unshift({ ...tx, id:ref.id });
+        newTxs.unshift({ ...tx, id: ref.id });
       } else {
         newTxs.unshift(tx);
       }
     }
     if (!user) lsSave(LS_TX_KEY, newTxs);
-    setTxs(newTxs);
-    setImportRows([]);
+    setTxs(newTxs); setImportRows([]);
     setImportStatus(`✅ Imported ${importRows.length} transactions successfully.`);
     if (fileRef.current) fileRef.current.value = '';
+    if (pdfRef.current)  pdfRef.current.value  = '';
   };
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -916,7 +1280,7 @@ export default function Tracker() {
                 sub="Try changing the search term, category, or date range." />
             ) : (
               <>
-                {paginated.map(t => <TxRow key={t.id} tx={t} onDelete={delTx}/>)}
+                {paginated.map(t => <TxRow key={t.id} tx={t} onDelete={delTx} onEdit={setEditingTx}/>)}
                 {hasMore && (
                   <div style={{ textAlign:'center', paddingTop:14 }}>
                     <button style={S.btnBlue} onClick={() => setPage(p => p+1)}>
@@ -1070,48 +1434,100 @@ export default function Tracker() {
       )}
 
       {/* ════════════════════════════════════════════════════════
-          CSV IMPORT
+          IMPORT (CSV + PDF)
       ════════════════════════════════════════════════════════ */}
       {activeSection === 'import' && (
         <div style={S.card}>
-          <div style={S.title}>📥 Import from Bank CSV</div>
-          <p style={{ fontSize:13, color:'var(--muted)', marginBottom:16, lineHeight:1.6 }}>
-            Upload a CSV exported from your bank. Supports <strong style={{ color:'var(--text)' }}>HDFC, SBI, ICICI</strong> formats and most generic CSVs with date and amount columns.
-            <br/>How to export: Bank netbanking → Transactions → Download → CSV/Excel.
-          </p>
+          <div style={S.title}>📥 Import Bank Statement</div>
 
-          <div style={{ marginBottom:16 }}>
-            <input ref={fileRef} type="file" accept=".csv,.txt" onChange={handleFileChange}
-              style={{ display:'none' }} id="csv-upload"/>
-            <label htmlFor="csv-upload" style={{ ...S.btnBlue, display:'inline-block', cursor:'pointer' }}>
-              📁 Choose CSV File
-            </label>
+          {/* CSV / PDF mode tabs */}
+          <div style={S.tabRow}>
+            <button style={S.tab(importMode==='csv')} onClick={() => { setImportMode('csv'); setImportRows([]); setImportStatus(''); }}>📄 CSV / Excel</button>
+            <button style={S.tab(importMode==='pdf')} onClick={() => { setImportMode('pdf'); setImportRows([]); setImportStatus(''); }}>📑 PDF Statement</button>
           </div>
 
+          {/* ── CSV mode ── */}
+          {importMode === 'csv' && (
+            <>
+              <p style={{ fontSize:13, color:'var(--muted)', marginBottom:14, lineHeight:1.6 }}>
+                Upload a CSV exported from your bank. Supports <strong style={{ color:'var(--text)' }}>SBI Excel export, HDFC, ICICI</strong> and generic CSVs.
+                <br/>SBI: use YONO → Statement → Export to Excel → Save as CSV.
+              </p>
+              <input ref={fileRef} type="file" accept=".csv,.txt" onChange={handleFileChange}
+                style={{ display:'none' }} id="csv-upload"/>
+              <label htmlFor="csv-upload" style={{ ...S.btnBlue, display:'inline-block', cursor:'pointer', marginBottom:14 }}>
+                📁 Choose CSV File
+              </label>
+              <div style={{ background:'var(--bg3)', borderRadius:10, padding:'12px 16px', fontSize:12, color:'var(--muted)', lineHeight:1.8 }}>
+                <strong style={{ color:'var(--text)' }}>Supported CSV formats:</strong><br/>
+                🏦 <strong>SBI Excel export</strong>: Date in col A, Description col D, Credit col O, Debit col R<br/>
+                🏦 <strong>HDFC</strong>: Date, Narration, Value Dat, Debit Amount, Credit Amount<br/>
+                🏦 <strong>ICICI</strong>: Transaction Date, Remarks, Withdrawal Amt, Deposit Amt<br/>
+                📄 <strong>Generic</strong>: Any CSV with Date and Amount/Debit/Credit columns
+              </div>
+            </>
+          )}
+
+          {/* ── PDF mode ── */}
+          {importMode === 'pdf' && (
+            <>
+              <p style={{ fontSize:13, color:'var(--muted)', marginBottom:14, lineHeight:1.6 }}>
+                Upload your bank e-statement PDF directly. Transactions are auto-categorised from merchant names.
+                {!pdfReady && <span style={{ color:'var(--gold)' }}> Loading PDF reader…</span>}
+              </p>
+              <input ref={pdfRef} type="file" accept=".pdf" onChange={handlePDFChange}
+                style={{ display:'none' }} id="pdf-upload"/>
+              <label htmlFor="pdf-upload" style={{ ...S.btnBlue, display:'inline-block', cursor:'pointer', marginBottom:14, opacity: pdfReady ? 1 : 0.5 }}>
+                📑 Choose PDF Statement
+              </label>
+              <div style={{ background:'var(--bg3)', borderRadius:10, padding:'12px 16px', fontSize:12, color:'var(--muted)', lineHeight:1.8 }}>
+                <strong style={{ color:'var(--text)' }}>Supported banks (PDF):</strong><br/>
+                🏦 SBI · KVB (Karur Vysya) · HDFC · ICICI · Axis · Kotak · PNB · Bank of Baroda<br/>
+                <strong style={{ color:'var(--text)' }}>How to get your PDF:</strong><br/>
+                SBI: YONO → Statements → Download PDF &nbsp;|&nbsp;
+                HDFC: NetBanking → My Accounts → Download Statement (PDF)<br/>
+                ICICI: iMobile → Accounts → Statement → PDF &nbsp;|&nbsp;
+                Axis: NetBanking → Accounts → Account Statement → PDF
+              </div>
+            </>
+          )}
+
+          {/* Shared: status */}
           {importStatus && (
-            <div style={{ background:'var(--bg3)', borderRadius:10, padding:'12px 16px', marginBottom:16, fontSize:13, color:'var(--muted)' }}>
+            <div style={{ background: importStatus.startsWith('✅') ? 'rgba(29,184,115,.08)' : 'var(--bg3)', border: `1px solid ${importStatus.startsWith('✅') ? 'rgba(29,184,115,.3)' : 'var(--border)'}`, borderRadius:10, padding:'12px 16px', margin:'14px 0', fontSize:13, color: importStatus.startsWith('✅') ? 'var(--emerald)' : 'var(--muted)' }}>
               {importStatus}
             </div>
           )}
 
+          {/* Shared: preview + confirm */}
           {importRows.length > 0 && (
             <>
               <div style={{ fontSize:13, fontWeight:700, color:'var(--text)', marginBottom:10 }}>
-                Preview ({importRows.length} rows):
+                Preview — {Math.min(10, importRows.length)} of {importRows.length} transactions:
               </div>
-              <div style={{ maxHeight:280, overflowY:'auto', border:'1px solid var(--border)', borderRadius:10, marginBottom:16 }}>
-                {importRows.slice(0,10).map((t,i) => (
-                  <div key={i} style={{ display:'flex', gap:10, padding:'8px 14px', borderBottom:'1px solid var(--border)', fontSize:12 }}>
-                    <span style={{ color:'var(--muted)', width:80, flexShrink:0 }}>{t.date}</span>
-                    <span style={{ color: t.type==='income' ? 'var(--emerald)':'var(--red)', width:55, flexShrink:0 }}>
-                      {t.type==='income' ? '+':'-'}{fmtINR(t.amount)}
-                    </span>
-                    <span style={{ color:'var(--muted)', flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{t.note}</span>
-                  </div>
-                ))}
+              <div style={{ maxHeight:280, overflowY:'auto', border:'1px solid var(--border)', borderRadius:10, marginBottom:14 }}>
+                <div style={{ display:'flex', gap:10, padding:'6px 14px', background:'var(--bg3)', fontSize:11, fontWeight:700, color:'var(--muted)', position:'sticky', top:0 }}>
+                  <span style={{ width:80, flexShrink:0 }}>DATE</span>
+                  <span style={{ width:65, flexShrink:0 }}>AMOUNT</span>
+                  <span style={{ width:90, flexShrink:0 }}>CATEGORY</span>
+                  <span style={{ flex:1 }}>DESCRIPTION</span>
+                </div>
+                {importRows.slice(0, 10).map((t, i) => {
+                  const meta = CAT_MAP[t.category] || { label: t.category, color:'#888', icon:'📦' };
+                  return (
+                    <div key={i} style={{ display:'flex', gap:10, padding:'7px 14px', borderBottom:'1px solid var(--border)', fontSize:12 }}>
+                      <span style={{ color:'var(--muted)', width:80, flexShrink:0 }}>{t.date}</span>
+                      <span style={{ color: t.type==='income' ? 'var(--emerald)':'var(--red)', width:65, flexShrink:0, fontWeight:700 }}>
+                        {t.type==='income' ? '+':'-'}{fmtINR(t.amount)}
+                      </span>
+                      <span style={{ color: meta.color, width:90, flexShrink:0 }}>{meta.icon} {meta.label}</span>
+                      <span style={{ color:'var(--muted)', flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{t.note}</span>
+                    </div>
+                  );
+                })}
                 {importRows.length > 10 && (
                   <div style={{ padding:'8px 14px', fontSize:12, color:'var(--muted)', textAlign:'center' }}>
-                    +{importRows.length-10} more rows
+                    +{importRows.length - 10} more rows will also be imported
                   </div>
                 )}
               </div>
@@ -1119,25 +1535,22 @@ export default function Tracker() {
                 <button style={S.btn} onClick={confirmImport}>
                   ✅ Import All {importRows.length} Transactions
                 </button>
-                <button style={S.btnSm} onClick={() => { setImportRows([]); setImportStatus(''); if(fileRef.current) fileRef.current.value=''; }}>
+                <button style={S.btnSm} onClick={() => { setImportRows([]); setImportStatus(''); if(fileRef.current) fileRef.current.value=''; if(pdfRef.current) pdfRef.current.value=''; }}>
                   Cancel
                 </button>
               </div>
             </>
           )}
-
-          {importing && (
-            <div style={{ color:'var(--muted)', fontSize:13 }}>Importing, please wait...</div>
-          )}
-
-          <div style={{ marginTop:24, background:'var(--bg3)', borderRadius:10, padding:'14px 16px', fontSize:12, color:'var(--muted)', lineHeight:1.8 }}>
-            <strong style={{ color:'var(--text)' }}>Supported formats:</strong><br/>
-            🏦 <strong>HDFC</strong>: Date, Narration, Value Dat, Debit Amount, Credit Amount, Chq/Ref, Closing Balance<br/>
-            🏦 <strong>SBI</strong>: Txn Date, Description, Ref No./Chq No., Debit, Credit, Balance<br/>
-            🏦 <strong>ICICI</strong>: Transaction Date, Transaction Remarks, Withdrawal Amt, Deposit Amt, Balance<br/>
-            📄 <strong>Generic</strong>: Any CSV with Date and Amount/Debit/Credit columns
-          </div>
         </div>
+      )}
+
+      {/* ════════ EDIT MODAL ════════ */}
+      {editingTx && (
+        <EditModal
+          tx={editingTx}
+          onSave={saveTxEdit}
+          onClose={() => setEditingTx(null)}
+        />
       )}
     </div>
   );
