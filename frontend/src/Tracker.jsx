@@ -430,41 +430,31 @@ function autoCategory(desc, type) {
   }
 
   // ── Food — includes KIIT Hospitality and all food/dining ──────────────────
-  if (/zomato|swiggy|eternal|mio amore|yara cafe|khabar|blinkit|zepto|bigbasket|grofer|dunzo|
-       dominos|mcdonalds|kfc|subway|pizza|burger|restaurant|cafe|dhaba|canteen|
-       kiit hospitality|hotel sw|hotel\b|food|eat|snack/.test(d.replace(/\n/g,''))) return 'food';
+  if (/zomato|swiggy|eternal|mio amore|yara cafe|khabar|blinkit|zepto|bigbasket|grofer|dunzo|dominos|mcdonalds|kfc|subway|pizza|burger|restaurant|cafe|dhaba|canteen|kiit hospitality|hotel sw|hotel\b|food|eat|snack/i.test(d.replace(/\n/g,''))) return 'food';
 
   // ── Transport ─────────────────────────────────────────────────────────────
-  if (/irctc|rapido|roppen|ola\b|uber|redbus|makemytrip|goibibo|metro|train|flight|
-       bus\b|indigo|air india|spicejet|akasa|cleartrip|abhibus|paytm travel/.test(d.replace(/\n/g,''))) return 'transport';
+  if (/irctc|rapido|roppen|ola\b|uber|redbus|makemytrip|goibibo|metro|train|flight|bus\b|indigo|air india|spicejet|akasa|cleartrip|abhibus|paytm travel/i.test(d.replace(/\n/g,''))) return 'transport';
 
   // ── Health ────────────────────────────────────────────────────────────────
-  if (/hospital|clinic|pharmacy|medical|apollo|fortis|max hosp|manipal|narayana|
-       netmeds|pharmeasy|1mg|doctor|diagnostic|pathology|kiit hos|lab\b/.test(d.replace(/\n/g,''))) return 'health';
+  if (/hospital|clinic|pharmacy|medical|apollo|fortis|max hosp|manipal|narayana|netmeds|pharmeasy|1mg|doctor|diagnostic|pathology|kiit hos|lab\b/i.test(d.replace(/\n/g,''))) return 'health';
 
   // ── Utilities (bills, subscriptions, telecom) ─────────────────────────────
-  if (/claude|subscription|netflix|amazon prime|hotstar|disney|spotify|youtube|
-       jio\b|airtel|vi\b|bsnl|tata sky|dish tv|electricity|water board|bescom|
-       cesc|tata power|loylty|loyltyrewardz/.test(d.replace(/\n/g,''))) return 'utilities';
+  if (/claude|subscription|netflix|amazon prime|hotstar|disney|spotify|youtube|jio\b|airtel|vi\b|bsnl|tata sky|dish tv|electricity|water board|bescom|cesc|tata power|loylty|loyltyrewardz/i.test(d.replace(/\n/g,''))) return 'utilities';
 
   // ── Shopping ──────────────────────────────────────────────────────────────
-  if (/amazon|flipkart|myntra|ajio|nykaa|meesho|snapdeal|reliance digital|croma|
-       jiomart|tata cliq/.test(d.replace(/\n/g,''))) return 'shopping';
+  if (/amazon|flipkart|myntra|ajio|nykaa|meesho|snapdeal|reliance digital|croma|jiomart|tata cliq/i.test(d.replace(/\n/g,''))) return 'shopping';
 
   // ── Insurance ─────────────────────────────────────────────────────────────
-  if (/lic\b|insurance|premium|policy|bajaj allianz|hdfc life|icici pru|
-       star health|niva bupa|term plan|sbi life|kotak life/.test(d.replace(/\n/g,''))) return 'insurance';
+  if (/lic\b|insurance|premium|policy|bajaj allianz|hdfc life|icici pru|star health|niva bupa|term plan|sbi life|kotak life/i.test(d.replace(/\n/g,''))) return 'insurance';
 
   // ── Investments ───────────────────────────────────────────────────────────
-  if (/sip\b|mutual fund|mf\b|zerodha|groww|upstox|nse|bse|demat|
-       smallcase|coin\b|paytm money/.test(d.replace(/\n/g,''))) return 'investment';
+  if (/sip\b|mutual fund|mf\b|zerodha|groww|upstox|nse|bse|demat|smallcase|coin\b|paytm money/i.test(d.replace(/\n/g,''))) return 'investment';
 
   // ── Rent / EMI ────────────────────────────────────────────────────────────
-  if (/emi\b|housing|rent\b|society|flat|property|home loan/.test(d)) return 'rent';
+  if (/emi\b|housing|rent\b|society|flat|property|home loan/i.test(d)) return 'rent';
 
   // ── Education ─────────────────────────────────────────────────────────────
-  if (/school|college|university|coaching|udemy|coursera|byju|unacademy|
-       vedantu|tuition|fee\b/.test(d.replace(/\n/g,''))) return 'education';
+  if (/school|college|university|coaching|udemy|coursera|byju|unacademy|vedantu|tuition|fee\b/i.test(d.replace(/\n/g,''))) return 'education';
 
   // ── Misc / Personal — all P2P UPI transfers between individuals ──────────
   // UPI/DR or UPI/CR to a person name (contains /Mr |/Ms |common names pattern)
@@ -476,7 +466,7 @@ function autoCategory(desc, type) {
   }
 
   // ── Bank charges ──────────────────────────────────────────────────────────
-  if (/sms charge|bank charge|penalty|fine\b|othpg/.test(d)) return 'utilities';
+  if (/sms charge|bank charge|penalty|fine\b|othpg/i.test(d)) return 'utilities';
 
   return 'other';
 }
@@ -664,6 +654,7 @@ function parseGenericPDFLines(lines) {
   }
   return res;
 }
+export default function Tracker() {
   const { user } = useAuth();
 
   // ── Core state ──────────────────────────────────────────────────────────────
