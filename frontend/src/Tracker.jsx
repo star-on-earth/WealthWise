@@ -229,81 +229,153 @@ function exportCSV(txs) {
  *  - ICICI CSV (Transaction Date, Transaction Remarks, Withdrawal Amt, Deposit Amt, Balance)
  *  - Generic: any CSV with columns containing 'date', 'amount'/'debit'/'credit'
  */
-function parseImportedCSV(text) {
-  const lines  = text.trim().split('\n').filter(l => l.trim());
-  if (lines.length < 2) return [];
-  const header = lines[0].toLowerCase().replace(/\r/g,'');
-  const cols   = header.split(',').map(c => c.trim().replace(/"/g,''));
+/** Normalise DD/MM/YYYY or DD-MM-YY → YYYY-MM-DD */
+function normDate(raw) {
+  if (!raw) return new Date().toISOString().slice(0, 10);
+  raw = raw.trim();
+  const m1 = raw.match(/^(\d{2})[\/\-](\d{2})[\/\-](\d{4})$/);
+  if (m1) return `${m1[3]}-${m1[2]}-${m1[1]}`;
+  const m2 = raw.match(/^(\d{2})[\/\-](\d{2})[\/\-](\d{2})$/);
+  if (m2) { const yr = +m2[3] <= 50 ? `20${m2[3]}` : `19${m2[3]}`; return `${yr}-${m2[2]}-${m2[1]}`; }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  return new Date().toISOString().slice(0, 10);
+}
 
-  // Detect format
-  const isHDFC   = cols.some(c => c.includes('narration')) && cols.some(c => c.includes('debit'));
-  const isSBI    = cols.some(c => c.includes('txn date'));
-  const isICICI  = cols.some(c => c.includes('withdrawal'));
-  const isOwn    = cols.includes('type') && cols.includes('category');
+/**
+ * Parse a CSV row that may contain quoted multi-line fields.
+ * Returns an array of string values.
+ */
+function splitCSVRow(row) {
+  const vals = [];
+  let cur = '', inQ = false;
+  for (let i = 0; i < row.length; i++) {
+    const ch = row[i];
+    if (ch === '"') { inQ = !inQ; }
+    else if (ch === ',' && !inQ) { vals.push(cur.trim()); cur = ''; }
+    else { cur += ch; }
+  }
+  vals.push(cur.trim());
+  return vals;
+}
+
+function parseImportedCSV(text) {
+  // Normalise line endings and collapse quoted multi-line fields into single lines
+  const normalized = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+
+  // Re-assemble any quoted fields that span multiple lines
+  const rawLines = [];
+  let buf = '', inQ = false;
+  for (const ch of normalized) {
+    if (ch === '"') inQ = !inQ;
+    if (ch === '\n' && !inQ) { rawLines.push(buf); buf = ''; }
+    else buf += (ch === '\n' ? ' ' : ch); // replace embedded newline with space
+  }
+  if (buf.trim()) rawLines.push(buf);
+
+  const lines = rawLines.map(l => l.replace(/\r/g, '').trim()).filter(Boolean);
+  if (lines.length < 2) return [];
+
+  // ── Detect SBI Excel-export format ─────────────────────────────────────────
+  // Signature: first row is "state bank" OR header row has "Date,,,Transaction Reference"
+  // Data layout (fixed col positions due to merged cells):
+  //   col 0 = Date, col 3 = Description, col 14 = Credit, col 17 = Debit, col 20 = Balance
+  const fullText = lines.slice(0, 5).join('\n').toLowerCase();
+  const isSBIExcel = fullText.includes('state bank') ||
+    lines.some(l => /^date,,,transaction reference/i.test(l));
+
+  if (isSBIExcel) {
+    const parsed = [];
+    for (const line of lines) {
+      const vals = splitCSVRow(line);
+      const rawDate = vals[0]?.trim() || '';
+      // Must start with a date in DD/MM/YYYY format
+      if (!/^\d{2}\/\d{2}\/\d{4}$/.test(rawDate)) continue;
+      const note   = (vals[3] || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+      const credit = parseFloat((vals[14] || '').replace(/,/g, '')) || 0;
+      const debit  = parseFloat((vals[17] || '').replace(/,/g, '')) || 0;
+      if (!credit && !debit) continue;
+      const date = normDate(rawDate);
+      if (credit > 0) parsed.push({ date, type:'income',  category:autoCategory(note,'income'),  amount:credit, note, id:Date.now()+Math.random()+'c' });
+      if (debit  > 0) parsed.push({ date, type:'expense', category:autoCategory(note,'expense'), amount:debit,  note, id:Date.now()+Math.random()+'d' });
+    }
+    return parsed;
+  }
+
+  // ── Standard CSV formats (HDFC, ICICI, WealthWise own export) ───────────────
+  const header = lines[0].toLowerCase();
+  const cols   = splitCSVRow(header).map(c => c.replace(/"/g,'').trim());
+
+  const isHDFC  = cols.some(c => c.includes('narration')) && cols.some(c => c.includes('debit'));
+  const isICICI = cols.some(c => c.includes('withdrawal'));
+  const isOwn   = cols.includes('type') && cols.includes('category');
+
+  const get = (names, vals) => {
+    for (const n of names) {
+      const idx = cols.findIndex(c => c.includes(n));
+      if (idx >= 0 && vals[idx]) return vals[idx];
+    }
+    return '';
+  };
 
   const parsed = [];
-
   for (let i = 1; i < lines.length; i++) {
-    const raw  = lines[i].replace(/\r/g,'');
-    // Respect quoted fields
-    const vals = raw.match(/(".*?"|[^,]+|(?<=,)(?=,)|(?<=,)$|^(?=,))/g)
-      ?.map(v => v.replace(/^"|"$/g,'').trim()) || raw.split(',').map(v => v.trim());
-
-    const get = (names) => {
-      for (const name of names) {
-        const idx = cols.findIndex(c => c.includes(name));
-        if (idx >= 0 && vals[idx]) return vals[idx];
-      }
-      return '';
-    };
-
+    const vals = splitCSVRow(lines[i]);
     try {
       if (isOwn) {
-        // WealthWise own export
-        const amount = parseFloat(get(['amount']));
+        const amount = parseFloat(get(['amount'], vals));
         if (!amount) continue;
         parsed.push({
-          date:     get(['date']).slice(0,10) || new Date().toISOString().slice(0,10),
-          type:     get(['type']) || 'expense',
+          date:     get(['date'], vals).slice(0,10) || new Date().toISOString().slice(0,10),
+          type:     get(['type'], vals) || 'expense',
           category: 'other',
           amount,
-          note:     get(['note','narration','description','remarks']) || '',
+          note:     get(['note','narration','description','remarks'], vals) || '',
           id:       Date.now().toString() + i,
         });
-      } else if (isHDFC || isSBI || isICICI) {
-        const rawDate = get(['date','txn date','transaction date','value dat']);
-        const debit   = parseFloat(get(['debit','withdrawal','withdrawal amt']).replace(/,/g,'')) || 0;
-        const credit  = parseFloat(get(['credit','deposit','deposit amt']).replace(/,/g,'')) || 0;
-        const note    = get(['narration','description','transaction remarks','ref no']).slice(0,60);
+      } else if (isHDFC || isICICI) {
+        const rawDate = get(['date','txn date','transaction date','value dat'], vals);
+        const debit   = parseFloat(get(['debit','withdrawal','withdrawal amt'], vals).replace(/,/g,'')) || 0;
+        const credit  = parseFloat(get(['credit','deposit','deposit amt'], vals).replace(/,/g,'')) || 0;
+        const note    = get(['narration','description','transaction remarks','ref no'], vals).slice(0,60);
         if (!debit && !credit) continue;
-        // Parse date — banks use formats like 01/04/2026 or 01-Apr-2026
-        let date = rawDate;
-        const ddmmyyyy = rawDate.match(/^(\d{2})[\/\-](\d{2})[\/\-](\d{4})$/);
-        const ddmonyyy = rawDate.match(/^(\d{2})[\/\-]([A-Za-z]{3})[\/\-](\d{4})$/);
-        if (ddmmyyyy) date = `${ddmmyyyy[3]}-${ddmmyyyy[2]}-${ddmmyyyy[1]}`;
-        else if (ddmonyyy) {
-          const mon = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
-          const m   = String(mon.indexOf(ddmonyyy[2].toLowerCase()) + 1).padStart(2,'0');
-          date = `${ddmonyyy[3]}-${m}-${ddmonyyy[1]}`;
-        }
-        if (credit > 0) parsed.push({ date, type:'income',  category:'other_inc', amount:credit, note, id:Date.now().toString()+i+'c' });
-        if (debit  > 0) parsed.push({ date, type:'expense', category:'other',     amount:debit,  note, id:Date.now().toString()+i+'d' });
+        const date = normDate(rawDate);
+        if (credit > 0) parsed.push({ date, type:'income',  category:autoCategory(note,'income'),  amount:credit, note, id:Date.now()+i+'c' });
+        if (debit  > 0) parsed.push({ date, type:'expense', category:autoCategory(note,'expense'), amount:debit,  note, id:Date.now()+i+'d' });
       } else {
-        // Generic fallback
-        const amount = parseFloat(get(['amount','amt','value']).replace(/,/g,''));
+        // Generic: any CSV with date and amount columns
+        const amount = parseFloat(get(['amount','amt','value'], vals).replace(/,/g,''));
         if (!amount) continue;
-        parsed.push({
-          date:     get(['date']).slice(0,10) || new Date().toISOString().slice(0,10),
-          type:     amount < 0 ? 'expense' : 'income',
-          category: 'other',
-          amount:   Math.abs(amount),
-          note:     get(['description','narration','note','remarks']).slice(0,60),
-          id:       Date.now().toString() + i,
-        });
+        const note = get(['description','narration','note','remarks'], vals).slice(0,60);
+        const date = normDate(get(['date'], vals));
+        const type = amount < 0 ? 'expense' : 'income';
+        parsed.push({ date, type, category:autoCategory(note,type), amount:Math.abs(amount), note, id:Date.now()+i });
       }
-    } catch { /* skip malformed rows */ }
+    } catch { /* skip malformed row */ }
   }
   return parsed;
+}
+
+/** Auto-categorise from merchant name in transaction description */
+function autoCategory(desc, type) {
+  const d = (desc || '').toLowerCase();
+  if (type === 'income') {
+    if (/neft|rtgs|imps|salary|sal\b|kvbl|payroll/.test(d))           return 'salary';
+    if (/int payout|interest|dividend|cashback|bhim|reward/.test(d))  return 'returns';
+    if (/cdm|cash deposit/.test(d))                                    return 'other_inc';
+    return 'other_inc';
+  }
+  if (/zomato|swiggy|eternal|mio amore|yara|khabar|blinkit|zepto|bigbasket|grofer|dunzo|food/.test(d)) return 'food';
+  if (/irctc|rapido|roppen|ola\b|uber|redbus|makemytrip|goibibo|metro|train|flight|bus\b/.test(d))     return 'transport';
+  if (/hospital|clinic|pharmacy|medical|kiit hos|apollo|fortis|max hosp|doctor|diagnostic/.test(d))    return 'health';
+  if (/claude|subscription|netflix|amazon prime|hotstar|spotify|youtube|jio\b|airtel|vi\b|bsnl|reliance|loylty/.test(d)) return 'utilities';
+  if (/amazon|flipkart|myntra|ajio|nykaa|meesho|snapdeal|shop|mall/.test(d))                           return 'shopping';
+  if (/lic\b|insurance|premium|policy|bajaj allianz|hdfc life|icici pru|term plan/.test(d))            return 'insurance';
+  if (/sip\b|mutual fund|mf\b|zerodha|groww|upstox|nse|bse|demat/.test(d))                             return 'investment';
+  if (/emi\b|housing|rent\b|society|flat|property|home loan/.test(d))                                  return 'rent';
+  if (/school|college|university|coaching|udemy|coursera|byju|unacademy|fee\b/.test(d))                return 'education';
+  if (/hotel|lodge|oyo|goibibo stay/.test(d))                                                           return 'family';
+  if (/sms charge|bank charge|penalty|fine\b/.test(d))                                                 return 'utilities';
+  return 'other';
 }
 
 // ─── MAIN COMPONENT ───────────────────────────────────────────────────────────

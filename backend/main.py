@@ -11,6 +11,8 @@ NEW in v4:
 """
 
 import os
+import logging
+import time
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -18,6 +20,14 @@ from typing import Optional
 import anthropic
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+
+# ─── STRUCTURED LOGGING ───────────────────────────────────────────────────────
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s | %(levelname)-8s | %(name)s | %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S',
+)
+logger = logging.getLogger('wealthwise')
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from starlette.responses import JSONResponse
@@ -29,7 +39,17 @@ app     = FastAPI(title="WealthWise API v4", version="4.0.0", docs_url="/docs")
 
 @app.exception_handler(RateLimitExceeded)
 async def _rate_limit(request: Request, exc: RateLimitExceeded):
+    logger.warning(f"Rate limit exceeded | IP={request.client.host} | path={request.url.path}")
     return JSONResponse(status_code=429, content={"detail": "Too many requests."})
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    """Log every request with method, path, and response time."""
+    start = time.time()
+    response = await call_next(request)
+    ms = round((time.time() - start) * 1000)
+    logger.info(f"{request.method} {request.url.path} → {response.status_code} ({ms}ms)")
+    return response
 
 app.add_middleware(SlowAPIMiddleware)
 app.state.limiter = limiter
@@ -367,13 +387,16 @@ def claude():
 # ─── ROUTES ───────────────────────────────────────────────────────────────────
 
 @app.get("/health")
-def health(): return {"status":"ok","version":"4.0.0","fy":"2026-27"}
+def health():
+    logger.info("Health check")
+    return {"status":"ok","version":"4.0.0","fy":"2026-27"}
 
 @app.post("/analyze")
 @limiter.limit("60/minute")
 async def analyze(request: Request, p: UserProfile):
     inc      = p.incomes
     tax      = compute_tax(inc, p.age, p.entity_type, p.loan_deductions, p.tracker_deductions)
+    logger.info(f"analyze | age={p.age} | occ={p.occupation} | entity={p.entity_type} | gross={tax['total_gross_income']} | best_tax={tax['best_tax']} | regime={tax['best_regime']} | savings={p.annual_savings}")
     total_inc= tax['total_gross_income']
     rp       = risk_profile(p.age, p.occupation, total_inc, p.annual_savings)
     rl       = p.risk_preference if p.risk_preference in TEMPLATES else rp['label']
