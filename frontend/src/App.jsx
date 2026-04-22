@@ -646,25 +646,30 @@ export default function App() {
               {taxResult.cryptoTax       > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--muted)', padding: '4px 0' }}><span>Crypto 30%</span><span style={{ color: '#E84040', fontWeight: 700 }}>{fmtINR(taxResult.cryptoTax)}</span></div>}
             </div>
           )}
-
-          {/* ── Section 54 LTCG Callout ── */}
-          {taxResult.ltcgPropertyTax > 0 && (
+          {/* ── Section 54 / 54F LTCG Callout ── */}
+          {(taxResult.ltcgPropertyTax > 0 || taxResult.ltcgPropertyNewTax > 0) && (
             <div style={{ background: 'linear-gradient(135deg,rgba(29,184,115,.09),rgba(232,146,26,.05))', border: '1px solid rgba(29,184,115,.3)', borderRadius: 12, padding: '16px 18px', marginTop: 14 }}>
               <div style={{ fontFamily: 'var(--font-display)', fontSize: 14, fontWeight: 700, color: 'var(--emerald)', marginBottom: 8 }}>
-                🏠 Section 54 — Save up to {fmtINR(taxResult.ltcgPropertyTax)} in LTCG Tax
+                🏠 Sections 54 / 54F — Save up to {fmtINR((taxResult.ltcgPropertyTax || 0) + (taxResult.ltcgPropertyNewTax || 0))} in Property LTCG Tax
               </div>
-              <div style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.7, marginBottom: 10 }}>
-                You have property LTCG of <strong>{fmtINR(results.incomes?.ltcg_property || 0)}</strong> attracting <strong style={{ color: 'var(--red)' }}>{fmtINR(taxResult.ltcgPropertyTax)}</strong> in tax (20% with indexation).
-                Under <strong>Section 54</strong>, if you own fewer than 2 residential properties, you can
-                reinvest this LTCG amount into a new residential property and claim full exemption.
+              {taxResult.ltcgPropertyTax > 0 && (
+                <div style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.7, marginBottom: 8 }}>
+                  <strong>Pre-Jul 23, 2024 property:</strong> {fmtINR(results.incomes?.ltcg_property || 0)} LTCG → <strong style={{ color: 'var(--red)' }}>{fmtINR(taxResult.ltcgPropertyTax)}</strong> tax at 20% with indexation.
+                </div>
+              )}
+              {taxResult.ltcgPropertyNewTax > 0 && (
+                <div style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.7, marginBottom: 8 }}>
+                  <strong>Post-Jul 23, 2024 property:</strong> {fmtINR(results.incomes?.ltcg_property_new || 0)} LTCG → <strong style={{ color: 'var(--red)' }}>{fmtINR(taxResult.ltcgPropertyNewTax)}</strong> tax at 12.5% without indexation (Budget 2024 rule).
+                </div>
+              )}
+              <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.6, marginBottom: 8 }}>
+                📋 <strong style={{ color: 'var(--text)' }}>Section 54 (property → property):</strong> Reinvest LTCG in a new house within 2 years (or construct within 3 years). Own fewer than 2 houses. Park proceeds in CGAS if not immediately available.
               </div>
-              <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.6, marginBottom: 10 }}>
-                📋 <strong style={{ color: 'var(--text)' }}>Conditions:</strong> Property must be purchased 1 year before or 2 years after sale,
-                OR constructed within 3 years. Must not sell the new property within 3 years.
-                If you can't buy immediately, park the proceeds in a <strong>Capital Gains Account Scheme (CGAS)</strong> at any nationalised bank before filing ITR.
+              <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.6, marginBottom: 8 }}>
+                📋 <strong style={{ color: 'var(--text)' }}>Section 54F (any asset → property):</strong> If you sold stocks, gold, or bonds and want to reinvest the FULL proceeds in a house — Section 54F exempts the full LTCG. You must not own more than 1 existing house.
               </div>
               <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
-                📋 <strong style={{ color: 'var(--text)' }}>Section 54EC alternative:</strong> Invest up to ₹50L in NHAI/REC bonds within 6 months of sale for proportionate exemption, even if you already own 2 properties.
+                📋 <strong style={{ color: 'var(--text)' }}>Section 54EC alternative:</strong> Invest up to ₹50L in NHAI/REC bonds within 6 months for proportionate exemption — works even if you own 2+ properties.
               </div>
               <button style={{ marginTop: 12, background: 'transparent', color: 'var(--emerald)', border: '1px solid var(--emerald)', borderRadius: 8, padding: '6px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
                 onClick={() => setPage('itsections')}>
