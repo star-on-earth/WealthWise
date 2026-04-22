@@ -41,8 +41,10 @@ export const INCOME_SOURCES = [
     note: '10% above ₹1.25L exemption (FY26-27). Enter gross LTCG before exemption.' },
   { key: 'stcg_equity',    label: 'STCG — Equity / MF',        icon: '📊', taxType: 'stcg15',  regime: 'both',
     note: '15% flat on short-term gains (held <1yr). No exemption.' },
-  { key: 'ltcg_property',  label: 'LTCG — Property / Gold',    icon: '🏗️',  taxType: 'ltcg20',  regime: 'both',
-    note: '20% with indexation (held >2yr). Section 54/54EC exemption may apply.' },
+  { key: 'ltcg_property',     label: 'LTCG — Property (Pre Jul 23, 2024)', icon: '🏗️', taxType: 'ltcg20',    regime: 'both',
+    note: '20% WITH indexation. For properties purchased/sold before July 23, 2024. Sec 54/54F/54EC exemption may apply.' },
+  { key: 'ltcg_property_new', label: 'LTCG — Property (Post Jul 23, 2024)',icon: '🏗️', taxType: 'ltcg12_5',  regime: 'both',
+    note: '12.5% WITHOUT indexation. Budget 2024 removed indexation for properties purchased after July 23, 2024.' },
   { key: 'agricultural',   label: 'Agricultural Income',       icon: '🌾', taxType: 'agri',    regime: 'both',
     note: 'Fully exempt from central tax. But used for rate computation if total income > basic exemption.' },
   { key: 'crypto',         label: 'Crypto / VDA Income',       icon: '₿',  taxType: 'crypto30', regime: 'both',
@@ -71,7 +73,8 @@ export const ASSET_TAX_RULES = {
   LTCG_EQUITY:   { label: 'LTCG 10%',            color: '#4A9EE8', postTaxCAGR: (g)    => g * 0.90 },
   STCG_EQUITY:   { label: 'STCG 15%',            color: '#E8921A', postTaxCAGR: (g)    => g * 0.85 },
   SLAB_RATE:     { label: 'Slab Rate',            color: '#9B72CF', postTaxCAGR: (g, r) => g * (1 - r) },
-  LTCG_PROPERTY: { label: 'LTCG 20%',            color: '#fb923c', postTaxCAGR: (g)    => g * 0.80 },
+  LTCG_PROPERTY:     { label: 'LTCG 20% (indexed)',  color: '#fb923c', postTaxCAGR: (g) => g * 0.80 },
+  LTCG_PROPERTY_NEW: { label: 'LTCG 12.5%',          color: '#ffa726', postTaxCAGR: (g) => g * 0.875 },
   CRYPTO:        { label: '30% Flat',             color: '#E84040', postTaxCAGR: (g)    => g * 0.70 },
   SGB:           { label: 'Tax-Free (SGB)',        color: '#1DB873', postTaxCAGR: (g)    => g        },
   NPS:           { label: 'Partly Tax-Free',      color: '#6ee7b7', postTaxCAGR: (g)    => g * 0.88 },
@@ -85,7 +88,7 @@ export const ASSETS = {
   FD:         { cagr:7.2,  label:'Fixed Deposit',         color:'#7c8cf8', lock:'1-5yr',  taxRule:'SLAB_RATE',     note:'Interest fully taxable at slab. TDS @10% above threshold.' },
   NPS:        { cagr:11.0, label:'NPS',                   color:'#9B72CF', lock:'Till 60',taxRule:'NPS',           note:'60% lump sum tax-free. 40% annuity taxable. Excellent 80CCD(1B) benefit.' },
   DebtMF:     { cagr:7.5,  label:'Debt Mutual Fund',      color:'#60a5fa', lock:'None',   taxRule:'SLAB_RATE',     note:'No indexation post Apr 2023. Gains at slab rate.' },
-  Gold:       { cagr:11.0, label:'Digital Gold / ETF',    color:'#E8921A', lock:'None',   taxRule:'LTCG_PROPERTY', note:'LTCG (>3yr) 20% with indexation. Better via SGB for tax-free gains.' },
+  Gold:       { cagr:11.0, label:'Digital Gold / ETF',    color:'#E8921A', lock:'None',   taxRule:'LTCG_PROPERTY_NEW', note:'LTCG (>3yr) 12.5% without indexation (Budget 2024). Better via SGB for tax-free gains.' },
   SGB:        { cagr:11.0, label:'Sovereign Gold Bond',   color:'#FFB84D', lock:'8yr',    taxRule:'SGB',           note:'Best gold option. 2.5% p.a. interest (taxable). Maturity fully tax-free.' },
   ELSS:       { cagr:14.0, label:'ELSS (Tax Saver MF)',   color:'#1DB873', lock:'3yr',    taxRule:'LTCG_EQUITY',   note:'LTCG above ₹1.25L at 10%. 80C eligible. Best equity tax-saver.' },
   IndexMF:    { cagr:13.0, label:'Index MF (Nifty 50)',   color:'#34d399', lock:'None',   taxRule:'LTCG_EQUITY',   note:'LTCG above ₹1.25L at 10%. Low expense ratio.' },
@@ -122,7 +125,7 @@ export function computeMultiIncomeTax(
     salary        = 0, business     = 0, freelance    = 0,
     rental        = 0, fd_interest  = 0, savings_int  = 0,
     dividends     = 0, ltcg_equity  = 0, stcg_equity  = 0,
-    ltcg_property = 0, agricultural = 0, crypto       = 0,
+    ltcg_property = 0, ltcg_property_new = 0, agricultural = 0, crypto = 0,
     other         = 0,
   } = incomes;
 
@@ -148,7 +151,7 @@ export function computeMultiIncomeTax(
   // ── Total gross ───────────────────────────────────────────────────────────
   const totalGrossIncome = salary + business + freelance + rental +
     fd_interest + savings_int + dividends +
-    ltcg_equity + stcg_equity + ltcg_property + agricultural + crypto + other;
+    ltcg_equity + stcg_equity + ltcg_property + ltcg_property_new + agricultural + crypto + other;
 
   // ── Loan deductions (for old regime only) ────────────────────────────────
   const homeLoanInterest   = Math.min(loanDeductions.home_loan_interest  || 0, 200_000);
@@ -176,9 +179,10 @@ export function computeMultiIncomeTax(
   // ── Special rate taxes (same both regimes) ────────────────────────────────
   const ltcgEquityTax    = ltcgEquityTaxable * 0.10;
   const stcgEquityTax    = stcg_equity * 0.15;
-  const ltcgPropertyTax  = ltcg_property * 0.20;
-  const cryptoTax        = crypto * 0.30;
-  const specialTax       = (ltcgEquityTax + stcgEquityTax + ltcgPropertyTax + cryptoTax) * 1.04;
+  const ltcgPropertyTax    = ltcg_property * 0.20;
+  const ltcgPropertyNewTax = ltcg_property_new * 0.125;
+  const cryptoTax          = crypto * 0.30;
+  const specialTax         = (ltcgEquityTax + stcgEquityTax + ltcgPropertyTax + ltcgPropertyNewTax + cryptoTax) * 1.04;
 
   const newTotal = newOrdinary.tax + specialTax;
   const oldTotal = oldOrdinary.tax + specialTax;
@@ -202,6 +206,7 @@ export function computeMultiIncomeTax(
     ltcgEquityTax:        Math.round(ltcgEquityTax),
     stcgEquityTax:        Math.round(stcgEquityTax),
     ltcgPropertyTax:      Math.round(ltcgPropertyTax),
+    ltcgPropertyNewTax:   Math.round(ltcgPropertyNewTax),
     cryptoTax:            Math.round(cryptoTax),
     specialTaxTotal:      Math.round(specialTax),
     // Regime details
