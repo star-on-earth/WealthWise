@@ -66,6 +66,9 @@ export const LOAN_TYPES = [
     section: '80E', limit: null,  note: 'Full interest deductible. No cap. Valid for 8 years. Old regime.' },
   { key: 'personal_loan',       label: 'Personal Loan',         icon: '💳',
     section: null,  limit: null,  note: 'No tax deduction on personal loan interest. Enter for financial planning only.' },
+  { key: 'business_loan_int', label: 'Business Loan Interest', icon: '🏢',
+    section: null, limit: null, 
+    note: 'Interest on business loan is a deductible business expense — reduces net profit in BOTH regimes. Enter annual interest paid.' },
 ];
 
 // ─── ASSET TAX RULES ─────────────────────────────────────────────────────────
@@ -128,7 +131,7 @@ export function computeMultiIncomeTax(
     rental        = 0, fd_interest  = 0, savings_int  = 0,
     dividends     = 0, ltcg_equity  = 0, stcg_equity  = 0,
     ltcg_property = 0, ltcg_property_new = 0, agricultural = 0, crypto = 0,
-    other         = 0,
+    other         = 0, 
   } = incomes;
 
   // ── Agricultural income (partial integration) ─────────────────────────────
@@ -147,11 +150,12 @@ export function computeMultiIncomeTax(
   const ltcgEquityTaxable = Math.max(0, ltcg_equity - LTCG_EQUITY_EXEMPTION);
 
   // ── Ordinary income (slab-taxed) ─────────────────────────────────────────
-  const ordinaryGross = salary + business + fno + freelance + rentalTaxable +
+  const businessTaxable = Math.max(0, business - businessLoanInt);
+  const ordinaryGross = salary + businessTaxable + fno + freelance + rentalTaxable +
     fd_interest + savingsIntTaxable + dividends + other;
 
   // ── Total gross ───────────────────────────────────────────────────────────
-  const totalGrossIncome = salary + business + fno + freelance + rental +
+  const totalGrossIncome = salary + businessTaxable + fno + freelance + rental +
     fd_interest + savings_int + dividends +
     ltcg_equity + stcg_equity + ltcg_property + ltcg_property_new + agricultural + crypto + other;
 
@@ -159,6 +163,7 @@ export function computeMultiIncomeTax(
   const homeLoanInterest   = Math.min(loanDeductions.home_loan_interest  || 0, 200_000);
   const eduLoanInterest    = loanDeductions.education_loan_int || 0; // no cap
   const homeLoanPrincipal  = Math.min(loanDeductions.home_loan_principal || 0, 150_000); // part of 80C
+  const businessLoanInt    = loanDeductions.business_loan_int || 0;
 
   // ── Tracker-derived deductions ────────────────────────────────────────────
   // Health insurance premiums from expense tracker (80D)
