@@ -223,7 +223,7 @@ export default function IncomeForm({
       <div style={S.section}>
         <div style={S.secTitle}>
           Loans &amp; Deductions
-          <span style={S.secBadge('#1DB873')}>Old Regime Only</span>
+          <span style={S.secBadge('#1DB873')}>Old Regime Only except Business Loan</span>
         </div>
         <div style={S.grid}>
           {LOAN_TYPES.map(loan => {
@@ -261,7 +261,11 @@ export default function IncomeForm({
             `₹${fmtINR(trackerDeductions.potential80C)} investment spending → verify against 80C.`}
         </div>
       )}
-
+      {(loanDeductions.business_loan_int > 0) && (
+        <div style={S.infoBox}>
+              💼 Business loan interest ₹{fmtINR(loanDeductions.business_loan_int)} deducted from business income — works in both old and new regime.
+        </div>
+      )}
       {/* Live tax preview — updates 400ms after typing stops */}
       {taxResult && (
         <div style={{ marginTop:20 }}>
