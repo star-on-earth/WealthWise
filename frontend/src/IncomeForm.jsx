@@ -165,7 +165,7 @@ export default function IncomeForm({
 
   // Income source groups
   const ordinaryGroup = INCOME_SOURCES.filter(s =>
-    ['salary','business','freelance','rental','fd_interest','savings_int','dividends','other'].includes(s.key));
+    ['salary','business','fno','freelance','rental','fd_interest','savings_int','dividends','other'].includes(s.key));
   const capitalGroup  = INCOME_SOURCES.filter(s =>
     ['ltcg_equity','stcg_equity','ltcg_property','ltcg_property_new'].includes(s.key));
   const specialGroup  = INCOME_SOURCES.filter(s =>

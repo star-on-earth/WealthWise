@@ -27,6 +27,8 @@ export const INCOME_SOURCES = [
     note: 'Standard deduction (₹75K new / ₹50K old) auto-applied' },
   { key: 'business',       label: 'Business Profit',           icon: '🏢', taxType: 'slab',    regime: 'both',
     note: 'Net profit after all business expenses' },
+  { key: 'fno',  label: 'Futures & Options (F&O)', icon: '📉', taxType: 'slab', regime: 'both',
+    note: 'F&O is treated as business income in India — taxed at your slab rate. Enter net profit after all trading expenses. File ITR-3.' },
   { key: 'freelance',      label: 'Freelance / Consulting',    icon: '💻', taxType: 'slab',    regime: 'both',
     note: 'Net receipts after deductible expenses' },
   { key: 'rental',         label: 'Rental Income',             icon: '🏠', taxType: 'slab',    regime: 'both',
@@ -122,7 +124,7 @@ export function computeMultiIncomeTax(
   const isHUF    = entityType === 'huf';
 
   const {
-    salary        = 0, business     = 0, freelance    = 0,
+    salary        = 0, business     = 0, freelance    = 0, fno          = 0,
     rental        = 0, fd_interest  = 0, savings_int  = 0,
     dividends     = 0, ltcg_equity  = 0, stcg_equity  = 0,
     ltcg_property = 0, ltcg_property_new = 0, agricultural = 0, crypto = 0,
@@ -145,11 +147,11 @@ export function computeMultiIncomeTax(
   const ltcgEquityTaxable = Math.max(0, ltcg_equity - LTCG_EQUITY_EXEMPTION);
 
   // ── Ordinary income (slab-taxed) ─────────────────────────────────────────
-  const ordinaryGross = salary + business + freelance + rentalTaxable +
+  const ordinaryGross = salary + business + fno + freelance + rentalTaxable +
     fd_interest + savingsIntTaxable + dividends + other;
 
   // ── Total gross ───────────────────────────────────────────────────────────
-  const totalGrossIncome = salary + business + freelance + rental +
+  const totalGrossIncome = salary + business + fno + freelance + rental +
     fd_interest + savings_int + dividends +
     ltcg_equity + stcg_equity + ltcg_property + ltcg_property_new + agricultural + crypto + other;
 
