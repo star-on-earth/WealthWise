@@ -167,7 +167,7 @@ export default function IncomeForm({
   const ordinaryGroup = INCOME_SOURCES.filter(s =>
     ['salary','business','freelance','rental','fd_interest','savings_int','dividends','other'].includes(s.key));
   const capitalGroup  = INCOME_SOURCES.filter(s =>
-    ['ltcg_equity','stcg_equity','ltcg_property'].includes(s.key));
+    ['ltcg_equity','stcg_equity','ltcg_property','ltcg_property_new'].includes(s.key));
   const specialGroup  = INCOME_SOURCES.filter(s =>
     ['agricultural','crypto'].includes(s.key));
 
@@ -294,6 +294,7 @@ export default function IncomeForm({
               {taxResult.ltcgEquityTax   > 0 && <div style={S.taxRow}><span>LTCG Equity 10% (on {fmtINR(taxResult.ltcgEquityTaxable)} above ₹1.25L)</span><span style={{ color:'#4A9EE8', fontWeight:700 }}>{fmtINR(taxResult.ltcgEquityTax)}</span></div>}
               {taxResult.stcgEquityTax   > 0 && <div style={S.taxRow}><span>STCG Equity 15% flat</span><span style={{ color:'#E8921A', fontWeight:700 }}>{fmtINR(taxResult.stcgEquityTax)}</span></div>}
               {taxResult.ltcgPropertyTax > 0 && <div style={S.taxRow}><span>LTCG Property 20%</span><span style={{ color:'#fb923c', fontWeight:700 }}>{fmtINR(taxResult.ltcgPropertyTax)}</span></div>}
+              {taxResult.ltcgPropertyNewTax > 0 && <div style={S.taxRow}><span>LTCG Property 12.5% without indexation (post Jul 23, 2024)</span><span style={{ color:'#ffa726', fontWeight:700 }}>{fmtINR(taxResult.ltcgPropertyNewTax)}</span></div>}
               {taxResult.cryptoTax       > 0 && <div style={{ ...S.taxRow, borderBottom:'none' }}><span>Crypto / VDA 30% flat</span><span style={{ color:'#E84040', fontWeight:700 }}>{fmtINR(taxResult.cryptoTax)}</span></div>}
             </div>
           )}
@@ -336,6 +337,11 @@ export default function IncomeForm({
           {taxResult.loanDeductionsUsed > 0 && (
             <div style={{ fontSize:12, color:'var(--muted)', marginTop:6 }}>
               🏠 {fmtINR(taxResult.loanDeductionsUsed)} loan deductions applied in old regime.
+            </div>
+          )}
+          {taxResult.ltcgPropertyNewTax > 0 && (
+            <div style={{ fontSize:12, color:'var(--muted)', marginTop:6 }}>
+              🏠 Property LTCG (post Jul 23, 2024) {fmtINR(debounced.ltcg_property_new)} → {fmtINR(taxResult.ltcgPropertyNewTax)} tax at 12.5% without indexation (Budget 2024 rule).
             </div>
           )}
         </div>
