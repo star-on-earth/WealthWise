@@ -149,6 +149,12 @@ export function computeMultiIncomeTax(
   const LTCG_EQUITY_EXEMPTION = 125_000;
   const ltcgEquityTaxable = Math.max(0, ltcg_equity - LTCG_EQUITY_EXEMPTION);
 
+  // ── Loan deductions (for old regime only) ────────────────────────────────
+  const homeLoanInterest   = Math.min(loanDeductions.home_loan_interest  || 0, 200_000);
+  const eduLoanInterest    = loanDeductions.education_loan_int || 0; // no cap
+  const homeLoanPrincipal  = Math.min(loanDeductions.home_loan_principal || 0, 150_000); // part of 80C
+  const businessLoanInt    = loanDeductions.business_loan_int || 0;
+  
   // ── Ordinary income (slab-taxed) ─────────────────────────────────────────
   const businessTaxable = Math.max(0, business - businessLoanInt);
   const ordinaryGross = salary + businessTaxable + fno + freelance + rentalTaxable +
@@ -158,12 +164,6 @@ export function computeMultiIncomeTax(
   const totalGrossIncome = salary + businessTaxable + fno + freelance + rental +
     fd_interest + savings_int + dividends +
     ltcg_equity + stcg_equity + ltcg_property + ltcg_property_new + agricultural + crypto + other;
-
-  // ── Loan deductions (for old regime only) ────────────────────────────────
-  const homeLoanInterest   = Math.min(loanDeductions.home_loan_interest  || 0, 200_000);
-  const eduLoanInterest    = loanDeductions.education_loan_int || 0; // no cap
-  const homeLoanPrincipal  = Math.min(loanDeductions.home_loan_principal || 0, 150_000); // part of 80C
-  const businessLoanInt    = loanDeductions.business_loan_int || 0;
 
   // ── Tracker-derived deductions ────────────────────────────────────────────
   // Health insurance premiums from expense tracker (80D)

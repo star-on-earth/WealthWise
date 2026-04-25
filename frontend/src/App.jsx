@@ -1,15 +1,9 @@
 /**
- * App.jsx — WealthWise v4
- *
- * Changes from v3:
- *  • Annual savings: toggle between manual input and auto-calc from tracker
- *  • Goals loaded and passed to portfolio generator for goal-aware allocation
- *  • Projection default: 10 years (toggle to 20yr available)
- *  • Corpus glitch fixed: new regime and old regime show DIFFERENT post-tax corpora
- *  • HUF entity type
- *  • 80TTB toggle removed — auto from age input
- *  • Loan deductions state added
- *  • Kuber/Laxmi theme colours throughout
+ * App.jsx — WealthWise v5
+ * ITR Filing Guide section added (patch over v4):
+ *  1. import ITRFiling
+ *  2. NAV_ITEMS gets { key:'itr', icon:'🗂️', label:'ITR Filing' }
+ *  3. page === 'itr' route renders <ITRFiling plannerResults={results} />
  */
 
 import React, { useState, useEffect } from 'react';
@@ -24,6 +18,7 @@ import Tracker         from './Tracker.jsx';
 import Goals           from './Goals.jsx';
 import Scenarios       from './Scenarios.jsx';
 import ITSections      from './ITSections.jsx';
+import ITRFiling       from './ITRFiling.jsx';   // ← NEW
 import IncomeForm      from './IncomeForm.jsx';
 import {
   computeMultiIncomeTax, getRiskProfile, generatePortfolios,
@@ -92,9 +87,10 @@ const S = {
   aiLabel:   { fontSize: 11, fontWeight: 700, color: 'var(--emerald)', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 10 },
   aiText:    { fontSize: 14, color: 'var(--text)', lineHeight: 1.75 },
   btnGreen:  { background: 'transparent', color: 'var(--emerald)', border: '1px solid var(--emerald)', borderRadius: 10, padding: '8px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer' },
+  // Bottom nav — 6 items now, slightly narrower labels
   bottomNav: { position: 'fixed', bottom: 0, left: 0, right: 0, background: 'var(--bg2)', borderTop: '1px solid var(--border)', display: 'flex', zIndex: 100 },
-  navBtn:    (a) => ({ flex: 1, padding: '8px 4px', border: 'none', cursor: 'pointer', background: 'transparent', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, borderTop: a ? '2px solid var(--gold)' : '2px solid transparent' }),
-  navLabel:  (a) => ({ fontSize: 10, fontWeight: 600, color: a ? 'var(--gold)' : 'var(--muted)' }),
+  navBtn:    (a) => ({ flex: 1, padding: '8px 2px', border: 'none', cursor: 'pointer', background: 'transparent', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, borderTop: a ? '2px solid var(--gold)' : '2px solid transparent' }),
+  navLabel:  (a) => ({ fontSize: 9, fontWeight: 600, color: a ? 'var(--gold)' : 'var(--muted)' }),
   tooltipBox:{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, padding: '9px 13px', fontSize: 12 },
   toggle:    (on) => ({ width: 40, height: 22, borderRadius: 11, background: on ? 'var(--gold)' : 'var(--border)', position: 'relative', cursor: 'pointer', transition: 'background .2s', flexShrink: 0 }),
   toggleDot: (on) => ({ position: 'absolute', top: 4, left: on ? 20 : 4, width: 14, height: 14, borderRadius: '50%', background: '#fff', transition: 'left .2s' }),
@@ -109,19 +105,21 @@ const Logo = () => (
   </div>
 );
 
+// ← PATCH 1: Added { key:'itr', icon:'🗂️', label:'ITR Filing' }
 const NAV_ITEMS = [
-  { key: 'home',       icon: '🏠', label: 'Planner'   },
-  { key: 'tracker',    icon: '💳', label: 'Tracker'   },
-  { key: 'goals',      icon: '🎯', label: 'Goals'     },
-  { key: 'scenarios',  icon: '🔮', label: 'Scenarios' },
-  { key: 'itsections', icon: '📋', label: 'IT Guide'  },
+  { key: 'home',       icon: '🏠', label: 'Planner'  },
+  { key: 'tracker',    icon: '💳', label: 'Tracker'  },
+  { key: 'goals',      icon: '🎯', label: 'Goals'    },
+  { key: 'scenarios',  icon: '🔮', label: 'Scenarios'},
+  { key: 'itsections', icon: '📋', label: 'IT Guide' },
+  { key: 'itr',        icon: '🗂️', label: 'ITR File' },  // ← NEW
 ];
 
 const BottomNav = ({ page, setPage }) => (
   <div style={S.bottomNav}>
     {NAV_ITEMS.map(n => (
       <button key={n.key} style={S.navBtn(page === n.key)} onClick={() => setPage(n.key)}>
-        <span style={{ fontSize: 17 }}>{n.icon}</span>
+        <span style={{ fontSize: 16 }}>{n.icon}</span>
         <span style={S.navLabel(page === n.key)}>{n.label}</span>
       </button>
     ))}
@@ -159,35 +157,30 @@ export default function App() {
   const [page,        setPage]        = useState('home');
   const [step,        setStep]        = useState(1);
   const [activeTab,   setActiveTab]   = useState(0);
-  const [projYears,   setProjYears]   = useState(10); // ← default 10yr
+  const [projYears,   setProjYears]   = useState(10);
   const [results,     setResults]     = useState(null);
   const [aiText,      setAiText]      = useState('');
   const [aiLoading,   setAiLoading]   = useState(false);
   const [aiError,     setAiError]     = useState('');
 
   // Form state
-  const [incomes,      setIncomes]     = useState({ salary: '' });
-  const [loanDeductions, setLoanDeductions] = useState({});
-  const [entityType,   setEntityType]  = useState('individual');
-  const [savingsMode,  setSavingsMode] = useState('manual'); // 'manual' | 'auto'
-  const [savingsInput, setSavingsInput]= useState('');
-  const [age,          setAge]         = useState('');
-  const [gender,       setGender]      = useState('male');
-  const [occupation,   setOccupation]  = useState('Salaried (MNC/Private)');
+  const [incomes,        setIncomes]       = useState({ salary: '' });
+  const [loanDeductions, setLoanDeductions]= useState({});
+  const [entityType,     setEntityType]    = useState('individual');
+  const [savingsMode,    setSavingsMode]   = useState('manual');
+  const [savingsInput,   setSavingsInput]  = useState('');
+  const [age,            setAge]           = useState('');
+  const [gender,         setGender]        = useState('male');
+  const [occupation,     setOccupation]    = useState('Salaried (MNC/Private)');
 
-  // Auto-savings from tracker
   const [autoSavingsData, setAutoSavingsData] = useState(null);
-
-  // Goals for portfolio adjustment
-  const [goals, setGoals] = useState([]);
+  const [goals,           setGoals]           = useState([]);
 
   useEffect(() => {
-    // Load goals from localStorage for portfolio adjustment
     try {
       const g = JSON.parse(localStorage.getItem('wealthwise_goals') || '[]');
       setGoals(g);
     } catch {}
-    // Load auto savings data
     const data = computeSavingsFromTracker();
     setAutoSavingsData(data);
   }, []);
@@ -195,12 +188,12 @@ export default function App() {
   useEffect(() => {
     if (profile?.lastAnalysis) {
       const p = profile.lastAnalysis;
-      if (p.incomes)     setIncomes(p.incomes);
-      if (p.savings)     setSavingsInput(String(p.savings));
-      if (p.age)         setAge(String(p.age));
-      if (p.gender)      setGender(p.gender);
-      if (p.occupation)  setOccupation(p.occupation);
-      if (p.entityType)  setEntityType(p.entityType);
+      if (p.incomes)    setIncomes(p.incomes);
+      if (p.savings)    setSavingsInput(String(p.savings));
+      if (p.age)        setAge(String(p.age));
+      if (p.gender)     setGender(p.gender);
+      if (p.occupation) setOccupation(p.occupation);
+      if (p.entityType) setEntityType(p.entityType);
     }
   }, [profile]);
 
@@ -219,25 +212,16 @@ export default function App() {
     const incomesNum = Object.fromEntries(Object.entries(incomes).map(([k, v]) => [k, +v || 0]));
     const trackerDed = extractTrackerDeductions();
     const taxResult  = computeMultiIncomeTax(incomesNum, userAge, entityType, loanDeductions, trackerDed);
-
     const riskProfile = getRiskProfile(userAge, occupation, totalIncome, effectiveSavings);
-
-    // ← KEY FIX: generate portfolios with BOTH regime slab rates
     const portfolios  = generatePortfolios(
-      riskProfile.label,
-      effectiveSavings,
-      taxResult.newSlabRate,    // new regime slab rate
-      taxResult.oldSlabRate,    // old regime slab rate
-      goals                     // goals for adjustment
+      riskProfile.label, effectiveSavings,
+      taxResult.newSlabRate, taxResult.oldSlabRate, goals
     );
-
-    // ← Generate projections for BOTH regimes per portfolio
     const projections = portfolios.map(p => ({
-      preTax:     projectNetWorth(p.blendedCagr,       effectiveSavings, projYears),
+      preTax:     projectNetWorth(p.blendedCagr,        effectiveSavings, projYears),
       postTaxNew: projectNetWorth(p.blendedPostTaxNew,  effectiveSavings, projYears),
       postTaxOld: projectNetWorth(p.blendedPostTaxOld,  effectiveSavings, projYears),
     }));
-
     const r = {
       incomes: incomesNum, savings: effectiveSavings, age: userAge,
       gender, occupation, entityType,
@@ -246,7 +230,6 @@ export default function App() {
       oldSlabRate: taxResult.oldSlabRate,
     };
     setResults(r); setStep(3); setAiText(''); setAiError('');
-
     if (user) await saveUserProfile({ lastAnalysis: { incomes: incomesNum, savings: effectiveSavings, age: userAge, gender, occupation, entityType } });
   };
 
@@ -257,10 +240,10 @@ export default function App() {
       const portfolio = results.portfolios[activeTab];
       const data = await aiExplainPortfolio({
         profile: { incomes: results.incomes, annual_savings: results.savings, age: results.age, gender: results.gender, occupation: results.occupation, is_senior: results.age >= 60 },
-        portfolioName:      portfolio.name,
-        portfolioAssets:    portfolio.alloc.slice(0, 4).map(a => ({ label: a.label, pct: a.pct, cagr: a.cagr, post_tax_cagr: a.postTaxCagrNew, tax_rule_label: a.taxRuleLabel })),
-        riskLabel:          portfolio.riskLabel,
-        marginalSlabRate:   results.newSlabRate,
+        portfolioName:   portfolio.name,
+        portfolioAssets: portfolio.alloc.slice(0, 4).map(a => ({ label: a.label, pct: a.pct, cagr: a.cagr, post_tax_cagr: a.postTaxCagrNew, tax_rule_label: a.taxRuleLabel })),
+        riskLabel:       portfolio.riskLabel,
+        marginalSlabRate: results.newSlabRate,
       });
       setAiText(data.explanation);
     } catch (e) {
@@ -289,13 +272,25 @@ export default function App() {
     </div>
   );
 
+  // ── Secondary page routes ──────────────────────────────────────────────────
   if (page === 'tracker')    return <div style={{ ...S.app, paddingBottom: 72 }}><PageHero title="💳 Expense Tracker" /><Tracker /><BottomNav page={page} setPage={setPage} /></div>;
   if (page === 'goals')      return <div style={{ ...S.app, paddingBottom: 72 }}><PageHero title="🎯 Financial Goals" /><Goals /><BottomNav page={page} setPage={setPage} /></div>;
   if (page === 'scenarios')  return <div style={{ ...S.app, paddingBottom: 72 }}><PageHero title="🔮 What-If Planner" /><Scenarios /><BottomNav page={page} setPage={setPage} /></div>;
   if (page === 'itsections') return <div style={{ ...S.app, paddingBottom: 72 }}><PageHero title="📋 IT Deductions Guide" /><ITSections userProfile={results ? { income: results.taxResult?.totalGrossIncome || totalIncome, savings: results.savings, age, occupation, marginal_slab_rate: results.newSlabRate } : null} /><BottomNav page={page} setPage={setPage} /></div>;
 
-  // ── Step 1: Income form ────────────────────────────────────────────────────
+  // ← PATCH 2: New ITR Filing route — passes planner results if available
+  if (page === 'itr') return (
+    <div style={{ ...S.app, paddingBottom: 72 }}>
+      <PageHero
+        title="🗂️ ITR Filing Guide"
+        sub={results ? 'Personalised from your planner data · FY 2026-27 / AY 2027-28' : 'FY 2026-27 / AY 2027-28'}
+      />
+      <ITRFiling plannerResults={results} />
+      <BottomNav page={page} setPage={setPage} />
+    </div>
+  );
 
+  // ── Step 1: Income form ────────────────────────────────────────────────────
   if (step === 1) return (
     <div style={{ ...S.app, paddingBottom: 72 }}>
       <div style={S.hero}>
@@ -346,7 +341,6 @@ export default function App() {
             </div>
           </div>
 
-          {/* Savings toggle: manual vs auto */}
           <div style={{ marginBottom: 14 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
               <label style={S.label}>Annual Savings</label>
@@ -358,7 +352,6 @@ export default function App() {
                 <span style={{ fontSize: 12, color: savingsMode === 'auto' ? 'var(--gold)' : 'var(--muted)' }}>Auto from Tracker</span>
               </div>
             </div>
-
             {savingsMode === 'manual' ? (
               <input style={S.input} type="number" placeholder="Amount you can invest per year (₹)" value={savingsInput} onChange={e => setSavingsInput(e.target.value)} onFocus={focusGold} onBlur={blurReset} />
             ) : (
@@ -383,7 +376,6 @@ export default function App() {
             )}
           </div>
 
-          {/* Goals loaded notice */}
           {goals.length > 0 && (
             <div style={{ background: 'rgba(29,184,115,.07)', border: '1px solid rgba(29,184,115,.2)', borderRadius: 10, padding: '10px 14px', fontSize: 13, color: 'var(--emerald)', marginBottom: 14 }}>
               🎯 {goals.length} goal{goals.length !== 1 ? 's' : ''} loaded — portfolio will be adjusted to align with your timelines.
@@ -394,6 +386,7 @@ export default function App() {
             Analyse My Savings →
           </button>
         </div>
+
         <div style={{ textAlign: 'center', color: 'var(--muted)', fontSize: 12, paddingBottom: 8 }}>
           🔒 {user ? 'Profile saved to your account.' : 'Calculations run in browser.'} · FY 2026-27
         </div>
@@ -403,12 +396,11 @@ export default function App() {
   );
 
   // ── Step 2: Tax regime ─────────────────────────────────────────────────────
-
   if (step === 2) {
-    const incomesNum  = Object.fromEntries(Object.entries(incomes).map(([k, v]) => [k, +v || 0]));
-    const trackerDed  = extractTrackerDeductions();
-    const taxPreview  = computeMultiIncomeTax(incomesNum, userAge, entityType, loanDeductions, trackerDed);
-    const better      = taxPreview.newRegime.totalTax <= taxPreview.oldRegime.totalTax ? 'new' : 'old';
+    const incomesNum = Object.fromEntries(Object.entries(incomes).map(([k, v]) => [k, +v || 0]));
+    const trackerDed = extractTrackerDeductions();
+    const taxPreview = computeMultiIncomeTax(incomesNum, userAge, entityType, loanDeductions, trackerDed);
+    const better     = taxPreview.newRegime.totalTax <= taxPreview.oldRegime.totalTax ? 'new' : 'old';
 
     return (
       <div style={{ ...S.app, paddingBottom: 72 }}>
@@ -436,11 +428,10 @@ export default function App() {
               ))}
             </div>
 
-            {/* ← Shows that slab rates DIFFER between regimes → different corpora */}
             <div style={{ background: 'var(--bg3)', borderRadius: 10, padding: '12px 16px', marginBottom: 16, fontSize: 13, color: 'var(--muted)', lineHeight: 1.7 }}>
               💡 Your <strong style={{ color: 'var(--text)' }}>new regime marginal slab: {(taxPreview.newSlabRate*100).toFixed(0)}%</strong> vs <strong style={{ color: 'var(--text)' }}>old regime marginal slab: {(taxPreview.oldSlabRate*100).toFixed(0)}%</strong>.
-              The Results page will show you <strong style={{ color: 'var(--gold)' }}>TWO different post-tax corpora</strong> — one for each regime — so you can see the actual wealth impact of your regime choice.
-              {taxPreview.agriIncome > 0 && ` Agricultural income ₹${fmtINR(taxPreview.agriIncome)} is exempt but used for rate computation.`}
+              The Results page will show you <strong style={{ color: 'var(--gold)' }}>TWO different post-tax corpora</strong> — one for each regime.
+              {taxPreview.agriIncome > 0 && ` Agricultural income ${fmtINR(taxPreview.agriIncome)} is exempt but used for rate computation.`}
             </div>
 
             {taxPreview.specialTaxTotal > 0 && (
@@ -465,23 +456,21 @@ export default function App() {
   }
 
   // ── Step 3: Results ────────────────────────────────────────────────────────
-
   const { riskProfile, portfolios, projections, taxResult, newSlabRate, oldSlabRate } = results;
   const portfolio = portfolios[activeTab];
   const proj      = projections[activeTab];
+  const maxY      = projYears;
 
-  // ← KEY: build chart with THREE lines — pre-tax, post-tax new regime, post-tax old regime
-  const maxY = projYears;
   const tripleChart = proj.preTax.slice(0, maxY + 1).map((p, i) => ({
-    year:       p.year,
-    'Pre-Tax':  p.value,
+    year:         p.year,
+    'Pre-Tax':    p.value,
     'New Regime': proj.postTaxNew[i]?.value,
     'Old Regime': proj.postTaxOld[i]?.value,
   }));
 
-  const worthPre  = proj.preTax[maxY]?.value;
-  const worthNew  = proj.postTaxNew[maxY]?.value;
-  const worthOld  = proj.postTaxOld[maxY]?.value;
+  const worthPre   = proj.preTax[maxY]?.value;
+  const worthNew   = proj.postTaxNew[maxY]?.value;
+  const worthOld   = proj.postTaxOld[maxY]?.value;
   const taxDragNew = (worthPre - worthNew).toFixed(1);
 
   return (
@@ -494,6 +483,19 @@ export default function App() {
       </div>
 
       <div style={S.container}>
+        {/* ← PATCH 3: Quick link to ITR Filing from results page */}
+        <div style={{ background: 'rgba(74,158,232,.07)', border: '1px solid rgba(74,158,232,.2)', borderRadius: 10, padding: '10px 16px', marginBottom: 14, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 13, color: 'var(--muted)' }}>
+            🗂️ Ready to file? Your ITR guide is personalized with this income data.
+          </span>
+          <button
+            style={{ fontSize: 12, padding: '6px 14px', borderRadius: 8, background: 'rgba(74,158,232,.12)', color: '#4A9EE8', border: '1px solid rgba(74,158,232,.3)', cursor: 'pointer', fontWeight: 600, whiteSpace: 'nowrap' }}
+            onClick={() => setPage('itr')}
+          >
+            Open ITR Filing Guide →
+          </button>
+        </div>
+
         {/* Projection year toggle */}
         <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
           {[10, 20].map(y => (
@@ -506,10 +508,10 @@ export default function App() {
         {/* KPI bar */}
         <div style={S.statRow}>
           {[
-            { label: 'Risk Profile',      value: riskProfile.label,           color: riskProfile.color },
-            { label: 'Total Tax',         value: fmtINR(taxResult.bestTax),   color: taxResult.bestTax === 0 ? 'var(--emerald)' : 'var(--gold)' },
-            { label: `${projYears}Y (New Regime)`, value: `₹${worthNew}L`,   color: 'var(--emerald)' },
-            { label: `${projYears}Y (Old Regime)`, value: `₹${worthOld}L`,   color: '#9B72CF' },
+            { label: 'Risk Profile',             value: riskProfile.label,         color: riskProfile.color },
+            { label: 'Total Tax',                value: fmtINR(taxResult.bestTax), color: taxResult.bestTax === 0 ? 'var(--emerald)' : 'var(--gold)' },
+            { label: `${projYears}Y (New Regime)`, value: `₹${worthNew}L`,         color: 'var(--emerald)' },
+            { label: `${projYears}Y (Old Regime)`, value: `₹${worthOld}L`,         color: '#9B72CF' },
           ].map(s => (
             <div key={s.label} style={S.statCard}>
               <div style={S.statLabel}>{s.label}</div>
@@ -518,7 +520,7 @@ export default function App() {
           ))}
         </div>
 
-        {/* Slab rate info — shows WHY corpus differs */}
+        {/* Slab rate info */}
         <div style={{ background: 'var(--bg3)', borderRadius: 10, padding: '10px 16px', marginBottom: 14, fontSize: 13, color: 'var(--muted)', display: 'flex', gap: 16, flexWrap: 'wrap' }}>
           <span>New regime slab: <strong style={{ color: 'var(--gold)' }}>{(newSlabRate*100).toFixed(0)}%</strong></span>
           <span>Old regime slab: <strong style={{ color: '#9B72CF' }}>{(oldSlabRate*100).toFixed(0)}%</strong></span>
@@ -584,7 +586,6 @@ export default function App() {
             </div>
           </div>
 
-          {/* AI explanation */}
           <div style={S.aiBox}>
             <div style={S.aiLabel}>🤖 AI Financial Advisor</div>
             {!aiText && !aiLoading && <button style={S.btnGreen} onClick={handleAiExplain}>✨ Explain This Portfolio</button>}
@@ -594,7 +595,7 @@ export default function App() {
           </div>
         </div>
 
-        {/* Triple corpus chart — THE FIX for "same corpus" complaint */}
+        {/* Triple corpus chart */}
         <div style={S.card}>
           <div style={S.cardTitle}>📈 {projYears}-Year Corpus — New vs Old Regime</div>
           <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 4 }}>
@@ -606,15 +607,15 @@ export default function App() {
           <ResponsiveContainer width="100%" height={220}>
             <AreaChart data={tripleChart}>
               <defs>
-                <linearGradient id="gPre"  x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#888" stopOpacity={0.12}/><stop offset="100%" stopColor="#888" stopOpacity={0}/></linearGradient>
-                <linearGradient id="gNew"  x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="var(--emerald)" stopOpacity={0.2}/><stop offset="100%" stopColor="var(--emerald)" stopOpacity={0}/></linearGradient>
-                <linearGradient id="gOld"  x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#9B72CF" stopOpacity={0.2}/><stop offset="100%" stopColor="#9B72CF" stopOpacity={0}/></linearGradient>
+                <linearGradient id="gPre" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#888" stopOpacity={0.12}/><stop offset="100%" stopColor="#888" stopOpacity={0}/></linearGradient>
+                <linearGradient id="gNew" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="var(--emerald)" stopOpacity={0.2}/><stop offset="100%" stopColor="var(--emerald)" stopOpacity={0}/></linearGradient>
+                <linearGradient id="gOld" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#9B72CF" stopOpacity={0.2}/><stop offset="100%" stopColor="#9B72CF" stopOpacity={0}/></linearGradient>
               </defs>
               <XAxis dataKey="year" tick={{ fill: 'var(--muted)', fontSize: 11 }} axisLine={false} tickLine={false} interval={Math.floor(projYears / 5)} />
               <YAxis tick={{ fill: 'var(--muted)', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={v => `₹${v}L`} />
               <Tooltip content={<ChartTip />} />
               <Legend wrapperStyle={{ fontSize: 12 }} />
-              <Area type="monotone" dataKey="Pre-Tax"    stroke="#666"          strokeWidth={1} fill="url(#gPre)" strokeDasharray="3 3" />
+              <Area type="monotone" dataKey="Pre-Tax"    stroke="#666"           strokeWidth={1} fill="url(#gPre)" strokeDasharray="3 3" />
               <Area type="monotone" dataKey="New Regime" stroke="var(--emerald)" strokeWidth={2} fill="url(#gNew)" />
               <Area type="monotone" dataKey="Old Regime" stroke="#9B72CF"        strokeWidth={2} fill="url(#gOld)" />
             </AreaChart>
@@ -626,10 +627,10 @@ export default function App() {
           <div style={S.cardTitle}>🧾 Tax Summary — FY 2026-27</div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
             {[
-              { label: 'Gross Income',   value: fmtINR(taxResult.totalGrossIncome), hi: false },
-              { label: 'Best Regime',    value: taxResult.bestRegime === 'new' ? 'New Regime' : 'Old Regime', hi: false },
-              { label: 'Ordinary Tax',   value: fmtINR(taxResult.bestRegime === 'new' ? taxResult.newRegime.tax : taxResult.oldRegime.tax), hi: false },
-              { label: 'Total Tax',      value: taxResult.bestTax === 0 ? '₹0 (87A Rebate)' : fmtINR(taxResult.bestTax), hi: true },
+              { label: 'Gross Income', value: fmtINR(taxResult.totalGrossIncome), hi: false },
+              { label: 'Best Regime',  value: taxResult.bestRegime === 'new' ? 'New Regime' : 'Old Regime', hi: false },
+              { label: 'Ordinary Tax', value: fmtINR(taxResult.bestRegime === 'new' ? taxResult.newRegime.tax : taxResult.oldRegime.tax), hi: false },
+              { label: 'Total Tax',    value: taxResult.bestTax === 0 ? '₹0 (87A Rebate)' : fmtINR(taxResult.bestTax), hi: true },
             ].map(r => (
               <div key={r.label} style={{ background: 'var(--bg3)', borderRadius: 10, padding: '12px 15px' }}>
                 <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>{r.label}</div>
@@ -637,6 +638,7 @@ export default function App() {
               </div>
             ))}
           </div>
+
           {taxResult.specialTaxTotal > 0 && (
             <div style={{ background: 'var(--bg3)', borderRadius: 10, padding: '12px 15px', fontSize: 13 }}>
               <div style={{ fontWeight: 700, color: 'var(--text)', marginBottom: 8 }}>Special Rate Taxes</div>
@@ -646,7 +648,8 @@ export default function App() {
               {taxResult.cryptoTax       > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--muted)', padding: '4px 0' }}><span>Crypto 30%</span><span style={{ color: '#E84040', fontWeight: 700 }}>{fmtINR(taxResult.cryptoTax)}</span></div>}
             </div>
           )}
-          {/* ── Section 54 / 54F LTCG Callout ── */}
+
+          {/* Section 54 callout */}
           {(taxResult.ltcgPropertyTax > 0 || taxResult.ltcgPropertyNewTax > 0) && (
             <div style={{ background: 'linear-gradient(135deg,rgba(29,184,115,.09),rgba(232,146,26,.05))', border: '1px solid rgba(29,184,115,.3)', borderRadius: 12, padding: '16px 18px', marginTop: 14 }}>
               <div style={{ fontFamily: 'var(--font-display)', fontSize: 14, fontWeight: 700, color: 'var(--emerald)', marginBottom: 8 }}>
@@ -659,17 +662,17 @@ export default function App() {
               )}
               {taxResult.ltcgPropertyNewTax > 0 && (
                 <div style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.7, marginBottom: 8 }}>
-                  <strong>Post-Jul 23, 2024 property:</strong> {fmtINR(results.incomes?.ltcg_property_new || 0)} LTCG → <strong style={{ color: 'var(--red)' }}>{fmtINR(taxResult.ltcgPropertyNewTax)}</strong> tax at 12.5% without indexation (Budget 2024 rule).
+                  <strong>Post-Jul 23, 2024 property:</strong> {fmtINR(results.incomes?.ltcg_property_new || 0)} LTCG → <strong style={{ color: 'var(--red)' }}>{fmtINR(taxResult.ltcgPropertyNewTax)}</strong> tax at 12.5% without indexation.
                 </div>
               )}
               <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.6, marginBottom: 8 }}>
-                📋 <strong style={{ color: 'var(--text)' }}>Section 54 (property → property):</strong> Reinvest LTCG in a new house within 2 years (or construct within 3 years). Own fewer than 2 houses. Park proceeds in CGAS if not immediately available.
+                📋 <strong style={{ color: 'var(--text)' }}>Section 54:</strong> Reinvest LTCG in a new house within 2 years (or construct within 3 years).
               </div>
               <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.6, marginBottom: 8 }}>
-                📋 <strong style={{ color: 'var(--text)' }}>Section 54F (any asset → property):</strong> If you sold stocks, gold, or bonds and want to reinvest the FULL proceeds in a house — Section 54F exempts the full LTCG. You must not own more than 1 existing house.
+                📋 <strong style={{ color: 'var(--text)' }}>Section 54F:</strong> Sell any long-term asset → reinvest full proceeds in a house.
               </div>
               <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
-                📋 <strong style={{ color: 'var(--text)' }}>Section 54EC alternative:</strong> Invest up to ₹50L in NHAI/REC bonds within 6 months for proportionate exemption — works even if you own 2+ properties.
+                📋 <strong style={{ color: 'var(--text)' }}>Section 54EC:</strong> Invest up to ₹50L in NHAI/REC bonds within 6 months.
               </div>
               <button style={{ marginTop: 12, background: 'transparent', color: 'var(--emerald)', border: '1px solid var(--emerald)', borderRadius: 8, padding: '6px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
                 onClick={() => setPage('itsections')}>
@@ -680,7 +683,7 @@ export default function App() {
 
           {taxResult.trackerDeductionsUsed > 0 && (
             <div style={{ fontSize: 12, color: 'var(--emerald)', marginTop: 10 }}>
-              💚 ₹{fmtINR(taxResult.trackerDeductionsUsed)} of deductions sourced automatically from your Expense Tracker.
+              💚 {fmtINR(taxResult.trackerDeductionsUsed)} of deductions sourced automatically from your Expense Tracker.
             </div>
           )}
         </div>
