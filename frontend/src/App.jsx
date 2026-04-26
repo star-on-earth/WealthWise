@@ -218,9 +218,9 @@ export default function App() {
       taxResult.newSlabRate, taxResult.oldSlabRate, goals
     );
     const projections = portfolios.map(p => ({
-      preTax:     projectNetWorth(p.blendedCagr,        effectiveSavings, projYears),
-      postTaxNew: projectNetWorth(p.blendedPostTaxNew,  effectiveSavings, projYears),
-      postTaxOld: projectNetWorth(p.blendedPostTaxOld,  effectiveSavings, projYears),
+      preTax:     projectNetWorth(p.blendedCagr,        effectiveSavings, 20),
+      postTaxNew: projectNetWorth(p.blendedPostTaxNew,  effectiveSavings, 20),
+      postTaxOld: projectNetWorth(p.blendedPostTaxOld,  effectiveSavings, 20),
     }));
     const r = {
       incomes: incomesNum, savings: effectiveSavings, age: userAge,
