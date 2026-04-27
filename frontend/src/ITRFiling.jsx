@@ -540,7 +540,7 @@ export default function ITRFiling({ plannerResults = null }) {
   const [answer,       setAnswer]       = useState('');
   const [aiLoading,    setAiLoading]    = useState(false);
   const [expandedForm, setExpandedForm] = useState(null);
-
+  
   const incomes    = plannerResults?.incomes    || {};
   const taxResult  = plannerResults?.taxResult  || null;
   const entityType = plannerResults?.entityType || 'individual';
@@ -663,43 +663,66 @@ export default function ITRFiling({ plannerResults = null }) {
           <div style={S.card}>
             <div style={S.title}>All ITR Forms — Quick Reference</div>
             {Object.entries(ITR_FORMS).map(([key, f]) => {
-              const isExpanded = expandedForm === key;
-                return (
-                  <div key={key} style={{ borderBottom: '1px solid var(--border)' }}>
-                    <div
-                      onClick={() => setExpandedForm(isExpanded ? null : key)}
-                      style={{ display: 'flex', gap: 12, padding: '10px 0', alignItems: 'center', flexWrap: 'wrap', cursor: 'pointer' }}
-                    >
-                      <div style={{ width: 95, flexShrink: 0 }}>
-                        <span style={{ ...S.badge(f.color), border: isExpanded ? `2px solid ${f.color}` : undefined }}>{key}</span>
-                      </div>
-                      <div style={{ flex: 1, minWidth: 160 }}>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: key === itrForm && hasData ? f.color : 'var(--text)' }}>
-                          {f.name} {key === itrForm && hasData && '← Your Form'}
-                        </div>
-                        <div style={{ fontSize: 11, color: 'var(--muted)', lineHeight: 1.4, marginTop: 2 }}>{f.for[0]}</div>
-                      </div>
-                      <span style={S.badge(f.complexity === 'Simple' ? '#1DB873' : f.complexity === 'Moderate' ? '#E8921A' : '#E84040')}>
-                        {f.complexity}
-                      </span>
-                      <span style={{ fontSize: 11, color: 'var(--muted)' }}>{isExpanded ? '▲' : '▼'}</span>
-                    </div>
-
-                    {isExpanded && (
-                      <div style={{ padding: '12px 0 16px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-                        <div>
-                          <div style={{ fontSize: 11, fontWeight: 700, color: '#1DB873', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.5px' }}>✅ Who should file</div>
-                          {f.for.map((item, i) => <div key={i} style={{ fontSize: 12, color: 'var(--muted)', padding: '2px 0', lineHeight: 1.5 }}>• {item}</div>)}
-                        </div>
-                        <div>
-                          <div style={{ fontSize: 11, fontWeight: 700, color: '#E84040', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.5px' }}>❌ Not applicable for</div>
-                          {f.notFor.map((item, i) => <div key={i} style={{ fontSize: 12, color: 'var(--muted)', padding: '2px 0', lineHeight: 1.5 }}>• {item}</div>)}
-                        </div>
-                      </div>
-                    )}
+            const isExpanded = expandedForm === key;
+            return (
+              <div key={key} style={{ borderBottom: '1px solid var(--border)' }}>
+                <div
+                  onClick={() => setExpandedForm(isExpanded ? null : key)}
+                  style={{ display:'flex', gap:12, padding:'10px 0', alignItems:'center',
+                    flexWrap:'wrap', cursor:'pointer' }}
+                >
+                  <div style={{ width: 95, flexShrink: 0 }}>
+                    <span style={{ ...S.badge(f.color),
+                      border: isExpanded ? `2px solid ${f.color}` : undefined }}>
+                      {key}
+                    </span>
                   </div>
-                );
-              })}
+                  <div style={{ flex: 1, minWidth: 160 }}>
+                    <div style={{ fontSize:13, fontWeight:600,
+                      color: key === itrForm && hasData ? f.color : 'var(--text)' }}>
+                      {f.name} {key === itrForm && hasData && '← Your Form'}
+                    </div>
+                    <div style={{ fontSize:11, color:'var(--muted)', lineHeight:1.4, marginTop:2 }}>
+                      {f.for[0]}
+                    </div>
+                  </div>
+                  <span style={S.badge(
+                    f.complexity==='Simple' ? '#1DB873' :
+                    f.complexity==='Moderate' ? '#E8921A' : '#E84040'
+                  )}>{f.complexity}</span>
+                  <span style={{ fontSize:11, color:'var(--muted)' }}>
+                    {isExpanded ? '▲' : '▼'}
+                  </span>
+                </div>
+
+                {isExpanded && (
+                  <div style={{ padding:'12px 0 16px',
+                    display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
+                    <div>
+                      <div style={{ fontSize:11, fontWeight:700, color:'#1DB873',
+                        marginBottom:8, textTransform:'uppercase', letterSpacing:'0.5px' }}>
+                        ✅ Who should file
+                      </div>
+                      {f.for.map((item, i) => (
+                        <div key={i} style={{ fontSize:12, color:'var(--muted)',
+                          padding:'2px 0', lineHeight:1.5 }}>• {item}</div>
+                      ))}
+                    </div>
+                    <div>
+                      <div style={{ fontSize:11, fontWeight:700, color:'#E84040',
+                        marginBottom:8, textTransform:'uppercase', letterSpacing:'0.5px' }}>
+                        ❌ Not applicable for
+                      </div>
+                      {f.notFor.map((item, i) => (
+                        <div key={i} style={{ fontSize:12, color:'var(--muted)',
+                          padding:'2px 0', lineHeight:1.5 }}>• {item}</div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
           </div>
 
           {/* Common mistakes */}
