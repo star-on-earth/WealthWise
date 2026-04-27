@@ -1,9 +1,12 @@
 /**
- * App.jsx — WealthWise v5
- * ITR Filing Guide section added (patch over v4):
- *  1. import ITRFiling
- *  2. NAV_ITEMS gets { key:'itr', icon:'🗂️', label:'ITR Filing' }
- *  3. page === 'itr' route renders <ITRFiling plannerResults={results} />
+ * App.jsx — WealthWise v5.1
+ *
+ * CHANGES FROM v5:
+ *  • NEW STATE: cityType, extraInputs — passed to IncomeForm for HRA/44AD/44ADA
+ *  • handleAnalyze: applies HRA exemption, 44AD, 44ADA adjustments before tax compute
+ *  • IncomeForm props updated with cityType/onCityChange, extraInputs/onExtraChange
+ *  • Profile save/restore includes cityType + extraInputs
+ *  • projections now computed for 20 years (fixes ₹undefinedL on 20Y view)
  */
 
 import React, { useState, useEffect } from 'react';
@@ -18,11 +21,11 @@ import Tracker         from './Tracker.jsx';
 import Goals           from './Goals.jsx';
 import Scenarios       from './Scenarios.jsx';
 import ITSections      from './ITSections.jsx';
-import ITRFiling       from './ITRFiling.jsx';   // ← NEW
+import ITRFiling       from './ITRFiling.jsx';
 import IncomeForm      from './IncomeForm.jsx';
 import {
   computeMultiIncomeTax, getRiskProfile, generatePortfolios,
-  projectNetWorth, fmtINR, OCCUPATIONS, ASSET_TAX_RULES,
+  projectNetWorth, fmtINR, OCCUPATIONS,
   computeSavingsFromTracker, extractTrackerDeductions,
 } from './taxEngine.js';
 import { aiExplainPortfolio } from './api.js';
@@ -87,7 +90,6 @@ const S = {
   aiLabel:   { fontSize: 11, fontWeight: 700, color: 'var(--emerald)', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 10 },
   aiText:    { fontSize: 14, color: 'var(--text)', lineHeight: 1.75 },
   btnGreen:  { background: 'transparent', color: 'var(--emerald)', border: '1px solid var(--emerald)', borderRadius: 10, padding: '8px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer' },
-  // Bottom nav — 6 items now, slightly narrower labels
   bottomNav: { position: 'fixed', bottom: 0, left: 0, right: 0, background: 'var(--bg2)', borderTop: '1px solid var(--border)', display: 'flex', zIndex: 100 },
   navBtn:    (a) => ({ flex: 1, padding: '8px 2px', border: 'none', cursor: 'pointer', background: 'transparent', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, borderTop: a ? '2px solid var(--gold)' : '2px solid transparent' }),
   navLabel:  (a) => ({ fontSize: 9, fontWeight: 600, color: a ? 'var(--gold)' : 'var(--muted)' }),
@@ -105,14 +107,13 @@ const Logo = () => (
   </div>
 );
 
-// ← PATCH 1: Added { key:'itr', icon:'🗂️', label:'ITR Filing' }
 const NAV_ITEMS = [
   { key: 'home',       icon: '🏠', label: 'Planner'  },
   { key: 'tracker',    icon: '💳', label: 'Tracker'  },
   { key: 'goals',      icon: '🎯', label: 'Goals'    },
   { key: 'scenarios',  icon: '🔮', label: 'Scenarios'},
   { key: 'itsections', icon: '📋', label: 'IT Guide' },
-  { key: 'itr',        icon: '🗂️', label: 'ITR File' },  // ← NEW
+  { key: 'itr',        icon: '🗂️', label: 'ITR File' },
 ];
 
 const BottomNav = ({ page, setPage }) => (
@@ -149,6 +150,41 @@ const ChartTip = ({ active, payload, label }) => {
   );
 };
 
+// ─── INCOME ADJUSTMENT HELPER ─────────────────────────────────────────────────
+// Applied both in IncomeForm preview AND in handleAnalyze — single source of truth.
+
+function applyExtraAdjustments(incomesNum, extraInputs, cityType) {
+  const adj = { ...incomesNum };
+
+  // 44AD presumptive business
+  if (extraInputs.opt_44ad && (adj.business || 0) > 0) {
+    adj.business = Math.round((adj.business || 0) * (extraInputs.digital_receipts ? 0.06 : 0.08));
+  }
+
+  // 44ADA presumptive professional
+  if (extraInputs.opt_44ada && (adj.freelance || 0) > 0 && (adj.freelance || 0) <= 7_500_000) {
+    adj.freelance = Math.round((adj.freelance || 0) * 0.50);
+  }
+
+  // HRA exemption (Sec 10(13A))
+  if ((adj.salary || 0) > 0 && (extraInputs.hra_received || 0) > 0 && (extraInputs.rent_paid || 0) > 0) {
+    const basic  = (adj.salary || 0) * 0.40;
+    const limit1 = extraInputs.hra_received;
+    const limit2 = Math.max(0, extraInputs.rent_paid - basic * 0.10);
+    const limit3 = basic * (cityType === 'metro' ? 0.50 : 0.40);
+    const exempt = Math.max(0, Math.min(limit1, limit2, limit3));
+    adj.salary   = Math.max(0, (adj.salary || 0) - exempt);
+  }
+
+  // Sec 10(14): children allowances
+  if ((extraInputs.children_in_school || 0) > 0) {
+    const n = Math.min(2, extraInputs.children_in_school);
+    adj.salary = Math.max(0, (adj.salary || 0) - n * 4_800);
+  }
+
+  return adj;
+}
+
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
 
 export default function App() {
@@ -164,14 +200,18 @@ export default function App() {
   const [aiError,     setAiError]     = useState('');
 
   // Form state
-  const [incomes,        setIncomes]       = useState({ salary: '' });
-  const [loanDeductions, setLoanDeductions]= useState({});
-  const [entityType,     setEntityType]    = useState('individual');
-  const [savingsMode,    setSavingsMode]   = useState('manual');
-  const [savingsInput,   setSavingsInput]  = useState('');
-  const [age,            setAge]           = useState('');
-  const [gender,         setGender]        = useState('male');
-  const [occupation,     setOccupation]    = useState('Salaried (MNC/Private)');
+  const [incomes,        setIncomes]        = useState({ salary: '' });
+  const [loanDeductions, setLoanDeductions] = useState({});
+  const [entityType,     setEntityType]     = useState('individual');
+  const [savingsMode,    setSavingsMode]    = useState('manual');
+  const [savingsInput,   setSavingsInput]   = useState('');
+  const [age,            setAge]            = useState('');
+  const [gender,         setGender]         = useState('male');
+  const [occupation,     setOccupation]     = useState('Salaried (MNC/Private)');
+
+  // v5.1 — new state for HRA, 44AD/44ADA, etc.
+  const [cityType,    setCityType]    = useState('non-metro');
+  const [extraInputs, setExtraInputs] = useState({});
 
   const [autoSavingsData, setAutoSavingsData] = useState(null);
   const [goals,           setGoals]           = useState([]);
@@ -181,19 +221,20 @@ export default function App() {
       const g = JSON.parse(localStorage.getItem('wealthwise_goals') || '[]');
       setGoals(g);
     } catch {}
-    const data = computeSavingsFromTracker();
-    setAutoSavingsData(data);
+    setAutoSavingsData(computeSavingsFromTracker());
   }, []);
 
   useEffect(() => {
     if (profile?.lastAnalysis) {
       const p = profile.lastAnalysis;
-      if (p.incomes)    setIncomes(p.incomes);
-      if (p.savings)    setSavingsInput(String(p.savings));
-      if (p.age)        setAge(String(p.age));
-      if (p.gender)     setGender(p.gender);
-      if (p.occupation) setOccupation(p.occupation);
-      if (p.entityType) setEntityType(p.entityType);
+      if (p.incomes)      setIncomes(p.incomes);
+      if (p.savings)      setSavingsInput(String(p.savings));
+      if (p.age)          setAge(String(p.age));
+      if (p.gender)       setGender(p.gender);
+      if (p.occupation)   setOccupation(p.occupation);
+      if (p.entityType)   setEntityType(p.entityType);
+      if (p.cityType)     setCityType(p.cityType);       // v5.1
+      if (p.extraInputs)  setExtraInputs(p.extraInputs); // v5.1
     }
   }, [profile]);
 
@@ -208,29 +249,51 @@ export default function App() {
   const isFormValid = totalIncome > 0 && effectiveSavings > 0 && age;
   const userAge     = +age || 30;
 
+  // ── ANALYZE ────────────────────────────────────────────────────────────────
+
   const handleAnalyze = async () => {
     const incomesNum = Object.fromEntries(Object.entries(incomes).map(([k, v]) => [k, +v || 0]));
-    const trackerDed = extractTrackerDeductions();
-    const taxResult  = computeMultiIncomeTax(incomesNum, userAge, entityType, loanDeductions, trackerDed);
+
+    // Apply HRA, 44AD, 44ADA, children adjustments — same logic as IncomeForm preview
+    const adjustedIncomes = applyExtraAdjustments(incomesNum, extraInputs, cityType);
+
+    const trackerDed  = extractTrackerDeductions();
+    const taxResult   = computeMultiIncomeTax(adjustedIncomes, userAge, entityType, loanDeductions, trackerDed);
     const riskProfile = getRiskProfile(userAge, occupation, totalIncome, effectiveSavings);
     const portfolios  = generatePortfolios(
       riskProfile.label, effectiveSavings,
       taxResult.newSlabRate, taxResult.oldSlabRate, goals
     );
+
+    // FIX: always project 20 years so projections[tab].preTax[20] is defined
     const projections = portfolios.map(p => ({
-      preTax:     projectNetWorth(p.blendedCagr,        effectiveSavings, 20),
+      preTax:     projectNetWorth(p.blendedCagr,       effectiveSavings, 20),
       postTaxNew: projectNetWorth(p.blendedPostTaxNew,  effectiveSavings, 20),
       postTaxOld: projectNetWorth(p.blendedPostTaxOld,  effectiveSavings, 20),
     }));
+
     const r = {
-      incomes: incomesNum, savings: effectiveSavings, age: userAge,
-      gender, occupation, entityType,
+      incomes: incomesNum,        // raw (for display / ITR guide)
+      adjustedIncomes,            // used for tax (for display notes)
+      savings: effectiveSavings,
+      age: userAge, gender, occupation, entityType,
+      cityType, extraInputs,
       riskProfile, portfolios, projections, taxResult,
       newSlabRate: taxResult.newSlabRate,
       oldSlabRate: taxResult.oldSlabRate,
     };
-    setResults(r); setStep(3); setAiText(''); setAiError('');
-    if (user) await saveUserProfile({ lastAnalysis: { incomes: incomesNum, savings: effectiveSavings, age: userAge, gender, occupation, entityType } });
+    setResults(r);
+    setStep(3);
+    setAiText('');
+    setAiError('');
+
+    if (user) await saveUserProfile({
+      lastAnalysis: {
+        incomes: incomesNum, savings: effectiveSavings,
+        age: userAge, gender, occupation, entityType,
+        cityType, extraInputs,   // v5.1
+      },
+    });
   };
 
   const handleAiExplain = async () => {
@@ -239,10 +302,17 @@ export default function App() {
     try {
       const portfolio = results.portfolios[activeTab];
       const data = await aiExplainPortfolio({
-        profile: { incomes: results.incomes, annual_savings: results.savings, age: results.age, gender: results.gender, occupation: results.occupation, is_senior: results.age >= 60 },
-        portfolioName:   portfolio.name,
-        portfolioAssets: portfolio.alloc.slice(0, 4).map(a => ({ label: a.label, pct: a.pct, cagr: a.cagr, post_tax_cagr: a.postTaxCagrNew, tax_rule_label: a.taxRuleLabel })),
-        riskLabel:       portfolio.riskLabel,
+        profile: {
+          incomes: results.incomes, annual_savings: results.savings,
+          age: results.age, gender: results.gender,
+          occupation: results.occupation, is_senior: results.age >= 60,
+        },
+        portfolioName:    portfolio.name,
+        portfolioAssets:  portfolio.alloc.slice(0, 4).map(a => ({
+          label: a.label, pct: a.pct, cagr: a.cagr,
+          post_tax_cagr: a.postTaxCagrNew, tax_rule_label: a.taxRuleLabel,
+        })),
+        riskLabel:        portfolio.riskLabel,
         marginalSlabRate: results.newSlabRate,
       });
       setAiText(data.explanation);
@@ -272,23 +342,23 @@ export default function App() {
     </div>
   );
 
-  // ── Secondary page routes ──────────────────────────────────────────────────
-  if (page === 'tracker')    return <div style={{ ...S.app, paddingBottom: 72 }}><PageHero title="💳 Expense Tracker" /><Tracker /><BottomNav page={page} setPage={setPage} /></div>;
-  if (page === 'goals')      return <div style={{ ...S.app, paddingBottom: 72 }}><PageHero title="🎯 Financial Goals" /><Goals /><BottomNav page={page} setPage={setPage} /></div>;
-  if (page === 'scenarios')  return <div style={{ ...S.app, paddingBottom: 72 }}><PageHero title="🔮 What-If Planner" /><Scenarios /><BottomNav page={page} setPage={setPage} /></div>;
-  if (page === 'itsections') return <div style={{ ...S.app, paddingBottom: 72 }}><PageHero title="📋 IT Deductions Guide" /><ITSections userProfile={results ? { income: results.taxResult?.totalGrossIncome || totalIncome, savings: results.savings, age, occupation, marginal_slab_rate: results.newSlabRate } : null} /><BottomNav page={page} setPage={setPage} /></div>;
-
-  // ← PATCH 2: New ITR Filing route — passes planner results if available
-  if (page === 'itr') return (
-    <div style={{ ...S.app, paddingBottom: 72 }}>
-      <PageHero
-        title="🗂️ ITR Filing Guide"
-        sub={results ? 'Personalised from your planner data · FY 2026-27 / AY 2027-28' : 'FY 2026-27 / AY 2027-28'}
-      />
-      <ITRFiling plannerResults={results} />
-      <BottomNav page={page} setPage={setPage} />
-    </div>
-  );
+  // ── Secondary routes ───────────────────────────────────────────────────────
+  if (page === 'tracker')
+    return <div style={{ ...S.app, paddingBottom: 72 }}><PageHero title="💳 Expense Tracker" /><Tracker /><BottomNav page={page} setPage={setPage} /></div>;
+  if (page === 'goals')
+    return <div style={{ ...S.app, paddingBottom: 72 }}><PageHero title="🎯 Financial Goals" /><Goals /><BottomNav page={page} setPage={setPage} /></div>;
+  if (page === 'scenarios')
+    return <div style={{ ...S.app, paddingBottom: 72 }}><PageHero title="🔮 What-If Planner" /><Scenarios /><BottomNav page={page} setPage={setPage} /></div>;
+  if (page === 'itsections')
+    return <div style={{ ...S.app, paddingBottom: 72 }}><PageHero title="📋 IT Deductions Guide" /><ITSections userProfile={results ? { income: results.taxResult?.totalGrossIncome || totalIncome, savings: results.savings, age, occupation, marginal_slab_rate: results.newSlabRate } : null} /><BottomNav page={page} setPage={setPage} /></div>;
+  if (page === 'itr')
+    return (
+      <div style={{ ...S.app, paddingBottom: 72 }}>
+        <PageHero title="🗂️ ITR Filing Guide" sub={results ? 'Personalised from your planner data · FY 2026-27 / AY 2027-28' : 'FY 2026-27 / AY 2027-28'} />
+        <ITRFiling plannerResults={results} />
+        <BottomNav page={page} setPage={setPage} />
+      </div>
+    );
 
   // ── Step 1: Income form ────────────────────────────────────────────────────
   if (step === 1) return (
@@ -309,10 +379,15 @@ export default function App() {
 
         <div style={S.card}>
           <div style={S.cardTitle}>💰 Income Sources</div>
+          {/* v5.1: new props cityType, extraInputs passed through */}
           <IncomeForm
             value={incomes}
             onChange={setIncomes}
             age={userAge}
+            cityType={cityType}
+            onCityChange={setCityType}
+            extraInputs={extraInputs}
+            onExtraChange={setExtraInputs}
             entityType={entityType}
             onEntityChange={setEntityType}
             loanDeductions={loanDeductions}
@@ -363,13 +438,13 @@ export default function App() {
                     </div>
                     <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
                       Based on {autoSavingsData.monthsCovered} month{autoSavingsData.monthsCovered !== 1 ? 's' : ''} of tracker data
-                      {autoSavingsData.isPartialYear && ' (partial year — extrapolated to 12 months)'}.
+                      {autoSavingsData.isPartialYear && ' (partial year — extrapolated)'}.
                       Monthly avg: {fmtINR(autoSavingsData.monthlySavings)}/mo.
                     </div>
                   </>
                 ) : (
                   <div style={{ fontSize: 13, color: 'var(--muted)' }}>
-                    No tracker data yet. Add income and expense transactions in the Tracker tab first, then switch back here.
+                    No tracker data yet. Add transactions in the Tracker tab first.
                   </div>
                 )}
               </div>
@@ -395,12 +470,13 @@ export default function App() {
     </div>
   );
 
-  // ── Step 2: Tax regime ─────────────────────────────────────────────────────
+  // ── Step 2: Tax regime confirm ─────────────────────────────────────────────
   if (step === 2) {
-    const incomesNum = Object.fromEntries(Object.entries(incomes).map(([k, v]) => [k, +v || 0]));
-    const trackerDed = extractTrackerDeductions();
-    const taxPreview = computeMultiIncomeTax(incomesNum, userAge, entityType, loanDeductions, trackerDed);
-    const better     = taxPreview.newRegime.totalTax <= taxPreview.oldRegime.totalTax ? 'new' : 'old';
+    const incomesNum    = Object.fromEntries(Object.entries(incomes).map(([k, v]) => [k, +v || 0]));
+    const adjustedForPreview = applyExtraAdjustments(incomesNum, extraInputs, cityType);
+    const trackerDed    = extractTrackerDeductions();
+    const taxPreview    = computeMultiIncomeTax(adjustedForPreview, userAge, entityType, loanDeductions, trackerDed);
+    const better        = taxPreview.newRegime.totalTax <= taxPreview.oldRegime.totalTax ? 'new' : 'old';
 
     return (
       <div style={{ ...S.app, paddingBottom: 72 }}>
@@ -428,19 +504,28 @@ export default function App() {
               ))}
             </div>
 
+            {/* HRA / exemption callout */}
+            {(taxPreview.hraExemption > 0 || taxPreview.sec1014Exemption > 0) && (
+              <div style={{ background: 'rgba(29,184,115,.07)', border: '1px solid rgba(29,184,115,.2)', borderRadius: 10, padding: '10px 14px', marginBottom: 14, fontSize: 13, color: 'var(--muted)' }}>
+                ✅ Salary exemptions applied:
+                {taxPreview.hraExemption > 0 && ` HRA ${fmtINR(taxPreview.hraExemption)}`}
+                {taxPreview.sec1014Exemption > 0 && ` · Children allowance ${fmtINR(taxPreview.sec1014Exemption)}`}
+              </div>
+            )}
+
             <div style={{ background: 'var(--bg3)', borderRadius: 10, padding: '12px 16px', marginBottom: 16, fontSize: 13, color: 'var(--muted)', lineHeight: 1.7 }}>
-              💡 Your <strong style={{ color: 'var(--text)' }}>new regime marginal slab: {(taxPreview.newSlabRate*100).toFixed(0)}%</strong> vs <strong style={{ color: 'var(--text)' }}>old regime marginal slab: {(taxPreview.oldSlabRate*100).toFixed(0)}%</strong>.
-              The Results page will show you <strong style={{ color: 'var(--gold)' }}>TWO different post-tax corpora</strong> — one for each regime.
-              {taxPreview.agriIncome > 0 && ` Agricultural income ${fmtINR(taxPreview.agriIncome)} is exempt but used for rate computation.`}
+              💡 New regime slab: <strong style={{ color: 'var(--text)' }}>{(taxPreview.newSlabRate*100).toFixed(0)}%</strong> · Old regime slab: <strong style={{ color: 'var(--text)' }}>{(taxPreview.oldSlabRate*100).toFixed(0)}%</strong>.
+              Results will show TWO different post-tax corpora — one per regime.
             </div>
 
             {taxPreview.specialTaxTotal > 0 && (
               <div style={{ background: 'var(--bg3)', borderRadius: 10, padding: '12px 16px', marginBottom: 16, fontSize: 13 }}>
                 <div style={{ fontWeight: 700, color: 'var(--text)', marginBottom: 8 }}>Special Rate Taxes (both regimes)</div>
-                {taxPreview.ltcgEquityTax > 0    && <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--muted)', padding: '3px 0' }}><span>LTCG Equity 10%</span><span style={{ color: '#4A9EE8', fontWeight: 600 }}>{fmtINR(taxPreview.ltcgEquityTax)}</span></div>}
-                {taxPreview.stcgEquityTax > 0    && <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--muted)', padding: '3px 0' }}><span>STCG Equity 15%</span><span style={{ color: '#E8921A', fontWeight: 600 }}>{fmtINR(taxPreview.stcgEquityTax)}</span></div>}
-                {taxPreview.ltcgPropertyTax > 0  && <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--muted)', padding: '3px 0' }}><span>LTCG Property 20%</span><span style={{ color: '#fb923c', fontWeight: 600 }}>{fmtINR(taxPreview.ltcgPropertyTax)}</span></div>}
-                {taxPreview.cryptoTax > 0        && <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--muted)', padding: '3px 0' }}><span>Crypto 30% flat</span><span style={{ color: '#E84040', fontWeight: 600 }}>{fmtINR(taxPreview.cryptoTax)}</span></div>}
+                {taxPreview.ltcgEquityTax   > 0 && <div style={{ display:'flex', justifyContent:'space-between', color:'var(--muted)', padding:'3px 0' }}><span>LTCG Equity 10%</span><span style={{ color:'#4A9EE8', fontWeight:600 }}>{fmtINR(taxPreview.ltcgEquityTax)}</span></div>}
+                {taxPreview.stcgEquityTax   > 0 && <div style={{ display:'flex', justifyContent:'space-between', color:'var(--muted)', padding:'3px 0' }}><span>STCG Equity 15%</span><span style={{ color:'#E8921A', fontWeight:600 }}>{fmtINR(taxPreview.stcgEquityTax)}</span></div>}
+                {taxPreview.ltcgDebtTax     > 0 && <div style={{ display:'flex', justifyContent:'space-between', color:'var(--muted)', padding:'3px 0' }}><span>LTCG Debt MF 20%</span><span style={{ color:'#7c8cf8', fontWeight:600 }}>{fmtINR(taxPreview.ltcgDebtTax)}</span></div>}
+                {taxPreview.ltcgPropertyTax > 0 && <div style={{ display:'flex', justifyContent:'space-between', color:'var(--muted)', padding:'3px 0' }}><span>LTCG Property 20%</span><span style={{ color:'#fb923c', fontWeight:600 }}>{fmtINR(taxPreview.ltcgPropertyTax)}</span></div>}
+                {taxPreview.cryptoTax       > 0 && <div style={{ display:'flex', justifyContent:'space-between', color:'var(--muted)', padding:'3px 0' }}><span>Crypto 30% flat</span><span style={{ color:'#E84040', fontWeight:600 }}>{fmtINR(taxPreview.cryptoTax)}</span></div>}
               </div>
             )}
 
@@ -459,18 +544,18 @@ export default function App() {
   const { riskProfile, portfolios, projections, taxResult, newSlabRate, oldSlabRate } = results;
   const portfolio = portfolios[activeTab];
   const proj      = projections[activeTab];
-  const maxY      = projYears;
+  const maxY      = projYears; // 10 or 20 — both safe since we always project 20yr
 
   const tripleChart = proj.preTax.slice(0, maxY + 1).map((p, i) => ({
     year:         p.year,
     'Pre-Tax':    p.value,
-    'New Regime': proj.postTaxNew[i]?.value,
-    'Old Regime': proj.postTaxOld[i]?.value,
+    'New Regime': proj.postTaxNew[i]?.value ?? 0,
+    'Old Regime': proj.postTaxOld[i]?.value ?? 0,
   }));
 
-  const worthPre   = proj.preTax[maxY]?.value;
-  const worthNew   = proj.postTaxNew[maxY]?.value;
-  const worthOld   = proj.postTaxOld[maxY]?.value;
+  const worthPre   = proj.preTax[maxY]?.value    ?? 0;
+  const worthNew   = proj.postTaxNew[maxY]?.value ?? 0;
+  const worthOld   = proj.postTaxOld[maxY]?.value ?? 0;
   const taxDragNew = (worthPre - worthNew).toFixed(1);
 
   return (
@@ -483,20 +568,15 @@ export default function App() {
       </div>
 
       <div style={S.container}>
-        {/* ← PATCH 3: Quick link to ITR Filing from results page */}
+        {/* ITR guide link */}
         <div style={{ background: 'rgba(74,158,232,.07)', border: '1px solid rgba(74,158,232,.2)', borderRadius: 10, padding: '10px 16px', marginBottom: 14, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 13, color: 'var(--muted)' }}>
-            🗂️ Ready to file? Your ITR guide is personalized with this income data.
-          </span>
-          <button
-            style={{ fontSize: 12, padding: '6px 14px', borderRadius: 8, background: 'rgba(74,158,232,.12)', color: '#4A9EE8', border: '1px solid rgba(74,158,232,.3)', cursor: 'pointer', fontWeight: 600, whiteSpace: 'nowrap' }}
-            onClick={() => setPage('itr')}
-          >
+          <span style={{ fontSize: 13, color: 'var(--muted)' }}>🗂️ Ready to file? Your ITR guide is personalized with this income data.</span>
+          <button style={{ fontSize: 12, padding: '6px 14px', borderRadius: 8, background: 'rgba(74,158,232,.12)', color: '#4A9EE8', border: '1px solid rgba(74,158,232,.3)', cursor: 'pointer', fontWeight: 600, whiteSpace: 'nowrap' }} onClick={() => setPage('itr')}>
             Open ITR Filing Guide →
           </button>
         </div>
 
-        {/* Projection year toggle */}
+        {/* Year toggle */}
         <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
           {[10, 20].map(y => (
             <button key={y} style={{ ...S.tab(projYears === y), fontSize: 12 }} onClick={() => setProjYears(y)}>
@@ -505,13 +585,13 @@ export default function App() {
           ))}
         </div>
 
-        {/* KPI bar */}
+        {/* KPIs */}
         <div style={S.statRow}>
           {[
-            { label: 'Risk Profile',             value: riskProfile.label,         color: riskProfile.color },
-            { label: 'Total Tax',                value: fmtINR(taxResult.bestTax), color: taxResult.bestTax === 0 ? 'var(--emerald)' : 'var(--gold)' },
-            { label: `${projYears}Y (New Regime)`, value: `₹${worthNew}L`,         color: 'var(--emerald)' },
-            { label: `${projYears}Y (Old Regime)`, value: `₹${worthOld}L`,         color: '#9B72CF' },
+            { label: 'Risk Profile',               value: riskProfile.label,         color: riskProfile.color },
+            { label: 'Total Tax',                  value: fmtINR(taxResult.bestTax), color: taxResult.bestTax === 0 ? 'var(--emerald)' : 'var(--gold)' },
+            { label: `${projYears}Y (New Regime)`, value: `₹${worthNew}L`,           color: 'var(--emerald)' },
+            { label: `${projYears}Y (Old Regime)`, value: `₹${worthOld}L`,           color: '#9B72CF' },
           ].map(s => (
             <div key={s.label} style={S.statCard}>
               <div style={S.statLabel}>{s.label}</div>
@@ -520,16 +600,37 @@ export default function App() {
           ))}
         </div>
 
-        {/* Slab rate info */}
+        {/* Slab info */}
         <div style={{ background: 'var(--bg3)', borderRadius: 10, padding: '10px 16px', marginBottom: 14, fontSize: 13, color: 'var(--muted)', display: 'flex', gap: 16, flexWrap: 'wrap' }}>
           <span>New regime slab: <strong style={{ color: 'var(--gold)' }}>{(newSlabRate*100).toFixed(0)}%</strong></span>
           <span>Old regime slab: <strong style={{ color: '#9B72CF' }}>{(oldSlabRate*100).toFixed(0)}%</strong></span>
-          <span>Pre-tax blended CAGR: <strong style={{ color: 'var(--text)' }}>{portfolio.blendedCagr}%</strong></span>
+          <span>Pre-tax CAGR: <strong style={{ color: 'var(--text)' }}>{portfolio.blendedCagr}%</strong></span>
           <span>Post-tax (new): <strong style={{ color: 'var(--emerald)' }}>{portfolio.blendedPostTaxNew}%</strong></span>
           <span>Post-tax (old): <strong style={{ color: '#9B72CF' }}>{portfolio.blendedPostTaxOld}%</strong></span>
         </div>
 
-        {/* Goal alignment notes */}
+        {/* HRA / exemptions applied note */}
+        {(taxResult.hraExemption > 0 || taxResult.sec1014Exemption > 0) && (
+          <div style={{ background: 'rgba(29,184,115,.07)', border: '1px solid rgba(29,184,115,.2)', borderRadius: 10, padding: '10px 14px', marginBottom: 14, fontSize: 13, color: 'var(--muted)' }}>
+            ✅ Salary exemptions applied:
+            {taxResult.hraExemption > 0 && ` HRA ${fmtINR(taxResult.hraExemption)}`}
+            {taxResult.sec1014Exemption > 0 && ` · Children allowance ${fmtINR(taxResult.sec1014Exemption)}`}
+          </div>
+        )}
+
+        {/* 44AD / 44ADA active notice */}
+        {results.extraInputs?.opt_44ad && (
+          <div style={{ background: 'rgba(29,184,115,.07)', border: '1px solid rgba(29,184,115,.2)', borderRadius: 10, padding: '10px 14px', marginBottom: 14, fontSize: 13, color: 'var(--muted)' }}>
+            ✅ Sec 44AD presumptive business applied — {results.extraInputs.digital_receipts ? '6%' : '8%'} of gross turnover.
+          </div>
+        )}
+        {results.extraInputs?.opt_44ada && (
+          <div style={{ background: 'rgba(29,184,115,.07)', border: '1px solid rgba(29,184,115,.2)', borderRadius: 10, padding: '10px 14px', marginBottom: 14, fontSize: 13, color: 'var(--muted)' }}>
+            ✅ Sec 44ADA presumptive professional applied — 50% of gross receipts deemed as income.
+          </div>
+        )}
+
+        {/* Goal notes */}
         {portfolio.goalNotes?.length > 0 && (
           <div style={{ background: 'rgba(29,184,115,.07)', border: '1px solid rgba(29,184,115,.2)', borderRadius: 12, padding: '14px 18px', marginBottom: 14 }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--emerald)', marginBottom: 8 }}>🎯 Portfolio Adjusted for Your Goals</div>
@@ -546,7 +647,7 @@ export default function App() {
           ))}
         </div>
 
-        {/* Allocation card */}
+        {/* Allocation */}
         <div style={S.card}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18 }}>
             <span style={{ fontFamily: 'var(--font-display)', fontSize: 17, fontWeight: 700 }}>📊 Portfolio Allocation</span>
@@ -585,13 +686,12 @@ export default function App() {
               ))}
             </div>
           </div>
-
           <div style={S.aiBox}>
             <div style={S.aiLabel}>🤖 AI Financial Advisor</div>
             {!aiText && !aiLoading && <button style={S.btnGreen} onClick={handleAiExplain}>✨ Explain This Portfolio</button>}
             {aiLoading && <div style={{ ...S.aiText, color: 'var(--muted)', animation: 'pulse 1.5s infinite' }}>Analysing your income profile…</div>}
-            {aiText  && <div style={S.aiText}>{aiText}</div>}
-            {aiError && <div style={{ ...S.aiText, color: 'var(--red)', fontSize: 13 }}>{aiError}</div>}
+            {aiText    && <div style={S.aiText}>{aiText}</div>}
+            {aiError   && <div style={{ ...S.aiText, color: 'var(--red)', fontSize: 13 }}>{aiError}</div>}
           </div>
         </div>
 
@@ -599,7 +699,7 @@ export default function App() {
         <div style={S.card}>
           <div style={S.cardTitle}>📈 {projYears}-Year Corpus — New vs Old Regime</div>
           <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 4 }}>
-            Pre-tax: ₹{worthPre}L · New Regime post-tax: ₹{worthNew}L · Old Regime post-tax: ₹{worthOld}L
+            Pre-tax: ₹{worthPre}L · New Regime: ₹{worthNew}L · Old Regime: ₹{worthOld}L
           </div>
           <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>
             Tax drag (new regime): ₹{taxDragNew}L over {projYears} years
@@ -611,8 +711,8 @@ export default function App() {
                 <linearGradient id="gNew" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="var(--emerald)" stopOpacity={0.2}/><stop offset="100%" stopColor="var(--emerald)" stopOpacity={0}/></linearGradient>
                 <linearGradient id="gOld" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#9B72CF" stopOpacity={0.2}/><stop offset="100%" stopColor="#9B72CF" stopOpacity={0}/></linearGradient>
               </defs>
-              <XAxis dataKey="year" tick={{ fill: 'var(--muted)', fontSize: 11 }} axisLine={false} tickLine={false} interval={Math.floor(projYears / 5)} />
-              <YAxis tick={{ fill: 'var(--muted)', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={v => `₹${v}L`} />
+              <XAxis dataKey="year" tick={{ fill:'var(--muted)', fontSize:11 }} axisLine={false} tickLine={false} interval={Math.floor(projYears/5)} />
+              <YAxis tick={{ fill:'var(--muted)', fontSize:11 }} axisLine={false} tickLine={false} tickFormatter={v => `₹${v}L`} />
               <Tooltip content={<ChartTip />} />
               <Legend wrapperStyle={{ fontSize: 12 }} />
               <Area type="monotone" dataKey="Pre-Tax"    stroke="#666"           strokeWidth={1} fill="url(#gPre)" strokeDasharray="3 3" />
@@ -642,10 +742,12 @@ export default function App() {
           {taxResult.specialTaxTotal > 0 && (
             <div style={{ background: 'var(--bg3)', borderRadius: 10, padding: '12px 15px', fontSize: 13 }}>
               <div style={{ fontWeight: 700, color: 'var(--text)', marginBottom: 8 }}>Special Rate Taxes</div>
-              {taxResult.ltcgEquityTax   > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--muted)', padding: '4px 0' }}><span>LTCG Equity 10%</span><span style={{ color: '#4A9EE8', fontWeight: 700 }}>{fmtINR(taxResult.ltcgEquityTax)}</span></div>}
-              {taxResult.stcgEquityTax   > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--muted)', padding: '4px 0' }}><span>STCG Equity 15%</span><span style={{ color: '#E8921A', fontWeight: 700 }}>{fmtINR(taxResult.stcgEquityTax)}</span></div>}
-              {taxResult.ltcgPropertyTax > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--muted)', padding: '4px 0' }}><span>LTCG Property 20%</span><span style={{ color: '#fb923c', fontWeight: 700 }}>{fmtINR(taxResult.ltcgPropertyTax)}</span></div>}
-              {taxResult.cryptoTax       > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--muted)', padding: '4px 0' }}><span>Crypto 30%</span><span style={{ color: '#E84040', fontWeight: 700 }}>{fmtINR(taxResult.cryptoTax)}</span></div>}
+              {taxResult.ltcgEquityTax      > 0 && <div style={{ display:'flex', justifyContent:'space-between', color:'var(--muted)', padding:'4px 0' }}><span>LTCG Equity 10%</span><span style={{ color:'#4A9EE8', fontWeight:700 }}>{fmtINR(taxResult.ltcgEquityTax)}</span></div>}
+              {taxResult.stcgEquityTax      > 0 && <div style={{ display:'flex', justifyContent:'space-between', color:'var(--muted)', padding:'4px 0' }}><span>STCG Equity 15%</span><span style={{ color:'#E8921A', fontWeight:700 }}>{fmtINR(taxResult.stcgEquityTax)}</span></div>}
+              {taxResult.ltcgDebtTax        > 0 && <div style={{ display:'flex', justifyContent:'space-between', color:'var(--muted)', padding:'4px 0' }}><span>LTCG Debt MF 20% (Sec 112)</span><span style={{ color:'#7c8cf8', fontWeight:700 }}>{fmtINR(taxResult.ltcgDebtTax)}</span></div>}
+              {taxResult.ltcgPropertyTax    > 0 && <div style={{ display:'flex', justifyContent:'space-between', color:'var(--muted)', padding:'4px 0' }}><span>LTCG Property 20%</span><span style={{ color:'#fb923c', fontWeight:700 }}>{fmtINR(taxResult.ltcgPropertyTax)}</span></div>}
+              {taxResult.ltcgPropertyNewTax > 0 && <div style={{ display:'flex', justifyContent:'space-between', color:'var(--muted)', padding:'4px 0' }}><span>LTCG Property 12.5%</span><span style={{ color:'#ffa726', fontWeight:700 }}>{fmtINR(taxResult.ltcgPropertyNewTax)}</span></div>}
+              {taxResult.cryptoTax          > 0 && <div style={{ display:'flex', justifyContent:'space-between', color:'var(--muted)', padding:'4px 0' }}><span>Crypto 30%</span><span style={{ color:'#E84040', fontWeight:700 }}>{fmtINR(taxResult.cryptoTax)}</span></div>}
             </div>
           )}
 
@@ -653,31 +755,13 @@ export default function App() {
           {(taxResult.ltcgPropertyTax > 0 || taxResult.ltcgPropertyNewTax > 0) && (
             <div style={{ background: 'linear-gradient(135deg,rgba(29,184,115,.09),rgba(232,146,26,.05))', border: '1px solid rgba(29,184,115,.3)', borderRadius: 12, padding: '16px 18px', marginTop: 14 }}>
               <div style={{ fontFamily: 'var(--font-display)', fontSize: 14, fontWeight: 700, color: 'var(--emerald)', marginBottom: 8 }}>
-                🏠 Sections 54 / 54F — Save up to {fmtINR((taxResult.ltcgPropertyTax || 0) + (taxResult.ltcgPropertyNewTax || 0))} in Property LTCG Tax
+                🏠 Sections 54 / 54F / 54EC — Save up to {fmtINR((taxResult.ltcgPropertyTax || 0) + (taxResult.ltcgPropertyNewTax || 0))}
               </div>
-              {taxResult.ltcgPropertyTax > 0 && (
-                <div style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.7, marginBottom: 8 }}>
-                  <strong>Pre-Jul 23, 2024 property:</strong> {fmtINR(results.incomes?.ltcg_property || 0)} LTCG → <strong style={{ color: 'var(--red)' }}>{fmtINR(taxResult.ltcgPropertyTax)}</strong> tax at 20% with indexation.
-                </div>
-              )}
-              {taxResult.ltcgPropertyNewTax > 0 && (
-                <div style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.7, marginBottom: 8 }}>
-                  <strong>Post-Jul 23, 2024 property:</strong> {fmtINR(results.incomes?.ltcg_property_new || 0)} LTCG → <strong style={{ color: 'var(--red)' }}>{fmtINR(taxResult.ltcgPropertyNewTax)}</strong> tax at 12.5% without indexation.
-                </div>
-              )}
-              <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.6, marginBottom: 8 }}>
-                📋 <strong style={{ color: 'var(--text)' }}>Section 54:</strong> Reinvest LTCG in a new house within 2 years (or construct within 3 years).
-              </div>
-              <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.6, marginBottom: 8 }}>
-                📋 <strong style={{ color: 'var(--text)' }}>Section 54F:</strong> Sell any long-term asset → reinvest full proceeds in a house.
-              </div>
-              <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
-                📋 <strong style={{ color: 'var(--text)' }}>Section 54EC:</strong> Invest up to ₹50L in NHAI/REC bonds within 6 months.
-              </div>
+              <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.6, marginBottom: 6 }}>📋 <strong style={{ color:'var(--text)' }}>Sec 54:</strong> Reinvest in new house within 2yr (or construct within 3yr).</div>
+              <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.6, marginBottom: 6 }}>📋 <strong style={{ color:'var(--text)' }}>Sec 54F:</strong> Sell any long-term asset → reinvest full proceeds in house.</div>
+              <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>📋 <strong style={{ color:'var(--text)' }}>Sec 54EC:</strong> Up to ₹50L in NHAI/REC bonds within 6 months of sale.</div>
               <button style={{ marginTop: 12, background: 'transparent', color: 'var(--emerald)', border: '1px solid var(--emerald)', borderRadius: 8, padding: '6px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
-                onClick={() => setPage('itsections')}>
-                View Section 54 in IT Guide →
-              </button>
+                onClick={() => setPage('itsections')}>View Sec 54 in IT Guide →</button>
             </div>
           )}
 
