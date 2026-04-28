@@ -1,0 +1,13 @@
+<svg width="100%" viewBox="0 0 522 522" role="img" xmlns="http://www.w3.org/2000/svg" style="">
+  <title style="fill:rgb(0, 0, 0);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto">WealthWise app icon</title>
+  <desc style="fill:rgb(0, 0, 0);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto">512x512 WealthWise PWA icon with saffron gold background and white rupee symbol</desc>
+
+  <rect width="512" height="512" rx="80" fill="#E8921A" style="fill:rgb(232, 146, 26);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
+
+  <rect x="60" y="60" width="392" height="392" rx="60" fill="#C4780E" opacity="0.25" style="fill:rgb(196, 120, 14);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:0.25;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
+
+  <text x="256" y="330" font-family="Arial, sans-serif" font-size="280" font-weight="900" text-anchor="middle" fill="#FFFFFF" opacity="0.97" style="fill:rgb(255, 255, 255);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:0.97;font-family:Arial, sans-serif;font-size:280px;font-weight:900;text-anchor:middle;dominant-baseline:auto">₹</text>
+
+  <text x="256" y="330" font-family="Arial, sans-serif" font-size="280" font-weight="900" text-anchor="middle" fill="#FFF3E6" opacity="0.12" style="fill:rgb(255, 243, 230);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:0.12;font-family:Arial, sans-serif;font-size:280px;font-weight:900;text-anchor:middle;dominant-baseline:auto">₹</text>
+
+</svg>
