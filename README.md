@@ -27,7 +27,7 @@ WealthWise is a full-stack Indian personal finance PWA that:
 
 ---
 
-## 🆕 What's New in v5.1
+## 🆕 What's New in v5.2
 
 | Feature | Detail |
 |---|---|
@@ -212,7 +212,7 @@ cd backend
 python -m venv venv
 source venv/bin/activate        # Windows: venv\Scripts\activate
 pip install -r requirements.txt
-cp .env.example .env            # add your ANTHROPIC_API_KEY
+# add your ANTHROPIC_API_KEY in .env file
 uvicorn main:app --reload       # http://localhost:8000
 # Health check: curl http://localhost:8000/health
 ```
@@ -222,7 +222,7 @@ uvicorn main:app --reload       # http://localhost:8000
 ```bash
 cd frontend
 npm install
-cp .env.example .env            # fill VITE_API_URL + Firebase vars
+# fill VITE_API_URL + Firebase vars in .env
 npm run dev                     # http://localhost:5173
 ```
 
@@ -397,6 +397,6 @@ WealthWise provides general financial information and tax estimates for educatio
 
 <div align="center">
 
-Built by Avrrodeep Banerjee · WealthWise v5.1 · FY 2026-27
+Built by Avrrodeep Banerjee · WealthWise v5.2 · FY 2026-27
 
 </div>
