@@ -1,4 +1,4 @@
-# 💰 WealthWise v5.1
+# 💰 WealthWise v5.2
 
 > **India's most complete personal finance planner** — FY 2026-27 tax engine, 15 income sources, HRA exemption, presumptive taxation (44AD/44ADA), HUF support, per-asset post-tax CAGR, goal-aware portfolios, bank statement import (CSV + PDF for 8 banks), ITR filing guide, and Claude AI. Built with React + FastAPI + Firebase.
 
