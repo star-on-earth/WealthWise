@@ -389,7 +389,7 @@ def claude():
 @app.get("/health")
 def health():
     logger.info("Health check")
-    return {"status":"ok","version":"4.0.0","fy":"2026-27"}
+    return {"status":"ok","version":"5.3.0","fy":"2026-27"}
 
 @app.post("/analyze")
 @limiter.limit("60/minute")

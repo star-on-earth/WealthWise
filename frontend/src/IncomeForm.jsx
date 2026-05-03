@@ -184,6 +184,18 @@ function OrdinaryCard({ src, isOn, onToggle, value, onChange, extraInputs, onExt
                   placeholder="Annual HRA ₹ (from salary slip, part of CTC)"
                 />
 
+                <div style={S.subLabel}>💼 Basic salary (from salary slip — NOT CTC)</div>
+                <SafeInput
+                  inputValue={extraInputs.basic_salary}
+                  onUpdate={v => onExtraChange({ ...extraInputs, basic_salary: +v || 0 })}
+                  placeholder="Annual basic ₹ — check payslip (typically 40–50% of CTC)"
+                />
+                {(extraInputs.hra_received > 0 && !extraInputs.basic_salary) && (
+                  <div style={{ fontSize:11, color:'var(--gold)', marginTop:4, lineHeight:1.5 }}>
+                    ⚠️ Basic salary not entered — HRA exemption will use 40% of CTC as an estimate. Enter your actual basic from your payslip for accurate results.
+                  </div>
+                )}
+
                 <div style={S.subLabel}>🏘️ Rent actually paid this year</div>
                 <SafeInput
                   inputValue={extraInputs.rent_paid}
@@ -253,8 +265,8 @@ function OrdinaryCard({ src, isOn, onToggle, value, onChange, extraInputs, onExt
                 />
                 {extraInputs.opt_44ad && (
                   <>
-                    <div style={S.auditOk}>
-                      ✅ Deemed income = {extraInputs.digital_receipts ? '6%' : '8%'} of turnover. No books of accounts needed.
+                    <div style={{ fontSize:11, background:'rgba(232,146,26,.1)', border:'1px solid rgba(232,146,26,.3)', borderRadius:8, padding:'8px 10px', marginTop:6, color:'var(--gold)', lineHeight:1.6 }}>
+                      ⚠️ <strong>Income is now REPLACED</strong> — we are treating {extraInputs.digital_receipts ? '6%' : '8%'} of your gross turnover as your taxable profit. Your actual net profit figure above is ignored. Only switch on if you are opting for the 44AD presumptive scheme in your ITR.
                     </div>
                     <Toggle
                       on={!!extraInputs.digital_receipts}
@@ -284,8 +296,8 @@ function OrdinaryCard({ src, isOn, onToggle, value, onChange, extraInputs, onExt
                   label="Opt for Sec 44ADA presumptive (receipts ≤ ₹75L)"
                 />
                 {extraInputs.opt_44ada && (
-                  <div style={S.auditOk}>
-                    ✅ Deemed income = 50% of gross receipts. Eligible: doctors, CAs, lawyers, engineers, architects, consultants.
+                  <div style={{ fontSize:11, background:'rgba(232,146,26,.1)', border:'1px solid rgba(232,146,26,.3)', borderRadius:8, padding:'8px 10px', marginTop:6, color:'var(--gold)', lineHeight:1.6 }}>
+                    ⚠️ <strong>Income is now REPLACED</strong> — we are treating 50% of your gross receipts as your taxable income. Your expense figure above is ignored. Only switch on if you are a qualifying professional (doctor, CA, lawyer, engineer) opting for 44ADA in your ITR.
                   </div>
                 )}
                 {extraInputs.opt_44ada && value.freelance > 7_500_000 && (
@@ -313,12 +325,12 @@ function OrdinaryCard({ src, isOn, onToggle, value, onChange, extraInputs, onExt
                 />
                 {(extraInputs.fno_turnover > 0) && (
                   <div style={
-                    extraInputs.fno_turnover > 10_000_000 ? S.auditErr :
-                    extraInputs.fno_turnover > 1_000_000  ? S.auditWarn : S.auditOk
+                    extraInputs.fno_turnover > 100_000_000 ? S.auditErr :
+                    extraInputs.fno_turnover > 10_000_000  ? S.auditWarn : S.auditOk
                   }>
-                    {extraInputs.fno_turnover > 10_000_000
+                    {extraInputs.fno_turnover > 100_000_000
                       ? '🚨 Turnover > ₹10Cr — Tax audit mandatory (Sec 44AB). Deadline Sep 30.'
-                      : extraInputs.fno_turnover > 1_000_000
+                      : extraInputs.fno_turnover > 10_000_000
                       ? '⚠️ Turnover > ₹1Cr — Audit required unless 95%+ digital receipts. Consult a CA.'
                       : '✅ Below ₹1Cr — No tax audit required.'}
                   </div>
@@ -423,7 +435,7 @@ export default function IncomeForm({
 
     // HRA exemption (Sec 10(13A))
     if ((adj.salary || 0) > 0 && (extraInputs.hra_received || 0) > 0 && (extraInputs.rent_paid || 0) > 0) {
-      const basic   = (adj.salary || 0) * 0.40; // approximate if basicSalary not provided
+      const basic   = extraInputs.basic_salary || (adj.salary || 0) * 0.40; // use actual basic from payslip if provided
       const limit1  = extraInputs.hra_received;
       const limit2  = Math.max(0, extraInputs.rent_paid - basic * 0.10);
       const limit3  = basic * (cityType === 'metro' ? 0.50 : 0.40);
@@ -465,12 +477,12 @@ export default function IncomeForm({
   // Computed HRA exemption for display
   const hraExemptDisplay = useMemo(() => {
     if (!(value.salary > 0) || !(extraInputs.hra_received > 0) || !(extraInputs.rent_paid > 0)) return 0;
-    const basic  = value.salary * 0.40;
+    const basic  = extraInputs.basic_salary || value.salary * 0.40;
     const l1     = extraInputs.hra_received;
     const l2     = Math.max(0, extraInputs.rent_paid - basic * 0.10);
     const l3     = basic * (cityType === 'metro' ? 0.50 : 0.40);
     return Math.max(0, Math.min(l1, l2, l3));
-  }, [value.salary, extraInputs.hra_received, extraInputs.rent_paid, cityType]);
+  }, [value.salary, extraInputs.hra_received, extraInputs.rent_paid, extraInputs.basic_salary, cityType]);
 
   // Income source groups
   const ordinaryGroup = INCOME_SOURCES.filter(s =>

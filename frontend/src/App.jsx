@@ -1,12 +1,12 @@
 /**
- * App.jsx — WealthWise v5.1
+ * App.jsx — WealthWise v5.2
  *
- * CHANGES FROM v5:
- *  • NEW STATE: cityType, extraInputs — passed to IncomeForm for HRA/44AD/44ADA
- *  • handleAnalyze: applies HRA exemption, 44AD, 44ADA adjustments before tax compute
- *  • IncomeForm props updated with cityType/onCityChange, extraInputs/onExtraChange
- *  • Profile save/restore includes cityType + extraInputs
- *  • projections now computed for 20 years (fixes ₹undefinedL on 20Y view)
+ * CHANGES FROM v5.1:
+ *  • ErrorBoundary wraps every major section (issue 14)
+ *  • RiskProfiler (7-factor questionnaire) replaces getRiskProfile() 3-variable lookup (issue 20)
+ *  • Input validation with error display (issue 7)
+ *  • Guest mode warning banner (issue 8)
+ *  • Bitcoin risk disclosure banner on portfolio page (issue 10)
  */
 
 import React, { useState, useEffect } from 'react';
@@ -14,18 +14,20 @@ import {
   PieChart, Pie, Cell, Tooltip,
   AreaChart, Area, XAxis, YAxis, ResponsiveContainer, Legend,
 } from 'recharts';
-import { useAuth }     from './AuthContext.jsx';
-import { logout }      from './firebase.js';
-import Login           from './Login.jsx';
-import Tracker         from './Tracker.jsx';
-import Goals           from './Goals.jsx';
-import Scenarios       from './Scenarios.jsx';
-import ITSections      from './ITSections.jsx';
-import ITRFiling       from './ITRFiling.jsx';
-import IncomeForm      from './IncomeForm.jsx';
+import { useAuth }        from './AuthContext.jsx';
+import { logout }         from './firebase.js';
+import Login              from './Login.jsx';
+import Tracker            from './Tracker.jsx';
+import Goals              from './Goals.jsx';
+import Scenarios          from './Scenarios.jsx';
+import ITSections         from './ITSections.jsx';
+import ITRFiling          from './ITRFiling.jsx';
+import IncomeForm         from './IncomeForm.jsx';
+import ErrorBoundary      from './ErrorBoundary.jsx';
+import RiskProfiler, { getRiskProfileFromAnswers } from './RiskProfiler.jsx';
 import {
-  computeMultiIncomeTax, getRiskProfile, generatePortfolios,
-  projectNetWorth, fmtINR, OCCUPATIONS,
+  generatePortfolios, projectNetWorth, fmtINR, OCCUPATIONS,
+  computeMultiIncomeTax, getRiskProfile,
   computeSavingsFromTracker, extractTrackerDeductions,
 } from './taxEngine.js';
 import { aiExplainPortfolio } from './api.js';
@@ -61,44 +63,47 @@ const S = {
     fontFamily: 'var(--font-display)', fontSize: 'clamp(22px,5vw,44px)',
     fontWeight: 800, lineHeight: 1.15, color: 'var(--text)', marginBottom: 10,
   },
-  heroSub:   { color: 'var(--muted)', fontSize: 15, maxWidth: 480, margin: '0 auto', lineHeight: 1.6 },
-  userBar:   { position: 'absolute', top: 16, right: 16, display: 'flex', alignItems: 'center', gap: 8 },
-  avatar:    { width: 30, height: 30, borderRadius: '50%', background: 'linear-gradient(135deg,var(--gold),var(--emerald))',
-               display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: '#000' },
-  logoutBtn: { fontSize: 11, color: 'var(--muted)', background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 6, padding: '4px 9px', cursor: 'pointer' },
-  signInBtn: { fontSize: 11, color: 'var(--gold)', background: 'transparent', border: '1px solid var(--gold)', borderRadius: 6, padding: '4px 9px', cursor: 'pointer' },
-  container: { maxWidth: 800, margin: '0 auto', padding: '28px 20px' },
-  card:      { background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 16, padding: '24px 22px', marginBottom: 18, animation: 'fadeUp .35s ease both' },
-  cardTitle: { fontFamily: 'var(--font-display)', fontSize: 17, fontWeight: 700, color: 'var(--text)', marginBottom: 18 },
-  row:       { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(190px,1fr))', gap: 14, marginBottom: 14 },
-  field:     { display: 'flex', flexDirection: 'column', gap: 5 },
-  label:     { fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.5px' },
-  input:     { background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 10, padding: '11px 13px', color: 'var(--text)', fontSize: 15, fontFamily: 'var(--font-body)', width: '100%', transition: 'border-color .2s' },
-  select:    { background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 10, padding: '11px 13px', color: 'var(--text)', fontSize: 15, fontFamily: 'var(--font-body)', width: '100%', cursor: 'pointer' },
-  btn:       { background: 'linear-gradient(135deg,var(--gold),var(--goldDim))', color: '#000', border: 'none', borderRadius: 12, padding: '14px 28px', fontSize: 16, fontWeight: 700, fontFamily: 'var(--font-display)', cursor: 'pointer', width: '100%' },
-  btnOutline:{ background: 'transparent', color: 'var(--gold)', border: '1px solid var(--gold)', borderRadius: 12, padding: '12px 22px', fontSize: 14, fontWeight: 600, cursor: 'pointer' },
-  regimeBox: (a) => ({ flex: 1, padding: 16, borderRadius: 12, cursor: 'pointer', transition: 'all .2s', border: a ? '2px solid var(--gold)' : '1px solid var(--border)', background: a ? 'rgba(232,146,26,.08)' : 'var(--bg3)' }),
-  statRow:   { display: 'flex', gap: 10, marginBottom: 18, flexWrap: 'wrap' },
-  statCard:  { background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 12, padding: '14px 18px', flex: 1, minWidth: 110 },
-  statLabel: { fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 5 },
-  statVal:   { fontFamily: 'var(--font-display)', fontSize: 18, fontWeight: 800, color: 'var(--gold)' },
-  tabBar:    { display: 'flex', gap: 7, marginBottom: 18, overflowX: 'auto', paddingBottom: 4 },
-  tab:       (a) => ({ padding: '7px 15px', borderRadius: 8, cursor: 'pointer', whiteSpace: 'nowrap', border: a ? '1px solid var(--gold)' : '1px solid var(--border)', background: a ? 'rgba(232,146,26,.12)' : 'var(--bg3)', color: a ? 'var(--gold)' : 'var(--muted)', fontSize: 13, fontWeight: 600 }),
-  badge:     (c) => ({ display: 'inline-block', padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: `${c}22`, color: c, border: `1px solid ${c}44` }),
-  assetRow:  { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid var(--border)' },
-  aiBox:     { background: 'linear-gradient(135deg,rgba(29,184,115,.07),rgba(232,146,26,.04))', border: '1px solid rgba(29,184,115,.22)', borderRadius: 12, padding: 18, marginTop: 16 },
-  aiLabel:   { fontSize: 11, fontWeight: 700, color: 'var(--emerald)', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 10 },
-  aiText:    { fontSize: 14, color: 'var(--text)', lineHeight: 1.75 },
-  btnGreen:  { background: 'transparent', color: 'var(--emerald)', border: '1px solid var(--emerald)', borderRadius: 10, padding: '8px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer' },
-  bottomNav: { position: 'fixed', bottom: 0, left: 0, right: 0, background: 'var(--bg2)', borderTop: '1px solid var(--border)', display: 'flex', zIndex: 100 },
-  navBtn:    (a) => ({ flex: 1, padding: '8px 2px', border: 'none', cursor: 'pointer', background: 'transparent', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, borderTop: a ? '2px solid var(--gold)' : '2px solid transparent' }),
-  navLabel:  (a) => ({ fontSize: 9, fontWeight: 600, color: a ? 'var(--gold)' : 'var(--muted)' }),
-  tooltipBox:{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, padding: '9px 13px', fontSize: 12 },
-  toggle:    (on) => ({ width: 40, height: 22, borderRadius: 11, background: on ? 'var(--gold)' : 'var(--border)', position: 'relative', cursor: 'pointer', transition: 'background .2s', flexShrink: 0 }),
-  toggleDot: (on) => ({ position: 'absolute', top: 4, left: on ? 20 : 4, width: 14, height: 14, borderRadius: '50%', background: '#fff', transition: 'left .2s' }),
+  heroSub:    { color: 'var(--muted)', fontSize: 15, maxWidth: 480, margin: '0 auto', lineHeight: 1.6 },
+  userBar:    { position: 'absolute', top: 16, right: 16, display: 'flex', alignItems: 'center', gap: 8 },
+  avatar:     { width: 30, height: 30, borderRadius: '50%', background: 'linear-gradient(135deg,var(--gold),var(--emerald))', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: '#000' },
+  logoutBtn:  { fontSize: 11, color: 'var(--muted)', background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 6, padding: '4px 9px', cursor: 'pointer' },
+  signInBtn:  { fontSize: 11, color: 'var(--gold)', background: 'transparent', border: '1px solid var(--gold)', borderRadius: 6, padding: '4px 9px', cursor: 'pointer' },
+  container:  { maxWidth: 800, margin: '0 auto', padding: '28px 20px' },
+  card:       { background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 16, padding: '24px 22px', marginBottom: 18, animation: 'fadeUp .35s ease both' },
+  cardTitle:  { fontFamily: 'var(--font-display)', fontSize: 17, fontWeight: 700, color: 'var(--text)', marginBottom: 18 },
+  row:        { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(190px,1fr))', gap: 14, marginBottom: 14 },
+  field:      { display: 'flex', flexDirection: 'column', gap: 5 },
+  label:      { fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.5px' },
+  input:      { background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 10, padding: '11px 13px', color: 'var(--text)', fontSize: 15, fontFamily: 'var(--font-body)', width: '100%', transition: 'border-color .2s' },
+  select:     { background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 10, padding: '11px 13px', color: 'var(--text)', fontSize: 15, fontFamily: 'var(--font-body)', width: '100%', cursor: 'pointer' },
+  btn:        { background: 'linear-gradient(135deg,var(--gold),var(--goldDim))', color: '#000', border: 'none', borderRadius: 12, padding: '14px 28px', fontSize: 16, fontWeight: 700, fontFamily: 'var(--font-display)', cursor: 'pointer', width: '100%' },
+  btnOutline: { background: 'transparent', color: 'var(--gold)', border: '1px solid var(--gold)', borderRadius: 12, padding: '12px 22px', fontSize: 14, fontWeight: 600, cursor: 'pointer' },
+  regimeBox:  (a) => ({ flex: 1, padding: 16, borderRadius: 12, cursor: 'pointer', transition: 'all .2s', border: a ? '2px solid var(--gold)' : '1px solid var(--border)', background: a ? 'rgba(232,146,26,.08)' : 'var(--bg3)' }),
+  statRow:    { display: 'flex', gap: 10, marginBottom: 18, flexWrap: 'wrap' },
+  statCard:   { background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 12, padding: '14px 18px', flex: 1, minWidth: 110 },
+  statLabel:  { fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 5 },
+  statVal:    { fontFamily: 'var(--font-display)', fontSize: 18, fontWeight: 800, color: 'var(--gold)' },
+  tabBar:     { display: 'flex', gap: 7, marginBottom: 18, overflowX: 'auto', paddingBottom: 4 },
+  tab:        (a) => ({ padding: '7px 15px', borderRadius: 8, cursor: 'pointer', whiteSpace: 'nowrap', border: a ? '1px solid var(--gold)' : '1px solid var(--border)', background: a ? 'rgba(232,146,26,.12)' : 'var(--bg3)', color: a ? 'var(--gold)' : 'var(--muted)', fontSize: 13, fontWeight: 600 }),
+  badge:      (c) => ({ display: 'inline-block', padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: `${c}22`, color: c, border: `1px solid ${c}44` }),
+  assetRow:   { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid var(--border)' },
+  aiBox:      { background: 'linear-gradient(135deg,rgba(29,184,115,.07),rgba(232,146,26,.04))', border: '1px solid rgba(29,184,115,.22)', borderRadius: 12, padding: 18, marginTop: 16 },
+  aiLabel:    { fontSize: 11, fontWeight: 700, color: 'var(--emerald)', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 10 },
+  aiText:     { fontSize: 14, color: 'var(--text)', lineHeight: 1.75 },
+  btnGreen:   { background: 'transparent', color: 'var(--emerald)', border: '1px solid var(--emerald)', borderRadius: 10, padding: '8px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer' },
+  bottomNav:  { position: 'fixed', bottom: 0, left: 0, right: 0, background: 'var(--bg2)', borderTop: '1px solid var(--border)', display: 'flex', zIndex: 100 },
+  navBtn:     (a) => ({ flex: 1, padding: '8px 2px', border: 'none', cursor: 'pointer', background: 'transparent', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, borderTop: a ? '2px solid var(--gold)' : '2px solid transparent' }),
+  navLabel:   (a) => ({ fontSize: 9, fontWeight: 600, color: a ? 'var(--gold)' : 'var(--muted)' }),
+  tooltipBox: { background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, padding: '9px 13px', fontSize: 12 },
+  toggle:     (on) => ({ width: 40, height: 22, borderRadius: 11, background: on ? 'var(--gold)' : 'var(--border)', position: 'relative', cursor: 'pointer', transition: 'background .2s', flexShrink: 0 }),
+  toggleDot:  (on) => ({ position: 'absolute', top: 4, left: on ? 20 : 4, width: 14, height: 14, borderRadius: '50%', background: '#fff', transition: 'left .2s' }),
+  errBox:     { background: 'rgba(232,64,64,.1)', border: '1px solid rgba(232,64,64,.3)', borderRadius: 10, padding: '10px 14px', marginBottom: 12 },
+  errItem:    { fontSize: 13, color: 'var(--red)', marginBottom: 4 },
+  guestBanner:{ background: 'rgba(232,146,26,.08)', border: '1px solid rgba(232,146,26,.25)', borderRadius: 10, padding: '10px 14px', marginBottom: 8, fontSize: 12, color: 'var(--muted)', textAlign: 'center', lineHeight: 1.6 },
+  bitcoinWarn:{ background: 'rgba(232,64,64,.08)', border: '1px solid rgba(232,64,64,.35)', borderRadius: 12, padding: '12px 16px', marginBottom: 14, fontSize: 13, color: 'var(--red)', lineHeight: 1.6 },
 };
 
-// ─── HELPERS ──────────────────────────────────────────────────────────────────
+// ─── SMALL STABLE HELPERS ────────────────────────────────────────────────────
 
 const Logo = () => (
   <div style={S.logoRow}>
@@ -150,38 +155,26 @@ const ChartTip = ({ active, payload, label }) => {
   );
 };
 
-// ─── INCOME ADJUSTMENT HELPER ─────────────────────────────────────────────────
-// Applied both in IncomeForm preview AND in handleAnalyze — single source of truth.
+// ─── INCOME ADJUSTMENT HELPER ────────────────────────────────────────────────
 
 function applyExtraAdjustments(incomesNum, extraInputs, cityType) {
   const adj = { ...incomesNum };
-
-  // 44AD presumptive business
   if (extraInputs.opt_44ad && (adj.business || 0) > 0) {
     adj.business = Math.round((adj.business || 0) * (extraInputs.digital_receipts ? 0.06 : 0.08));
   }
-
-  // 44ADA presumptive professional
   if (extraInputs.opt_44ada && (adj.freelance || 0) > 0 && (adj.freelance || 0) <= 7_500_000) {
     adj.freelance = Math.round((adj.freelance || 0) * 0.50);
   }
-
-  // HRA exemption (Sec 10(13A))
   if ((adj.salary || 0) > 0 && (extraInputs.hra_received || 0) > 0 && (extraInputs.rent_paid || 0) > 0) {
-    const basic  = (adj.salary || 0) * 0.40;
+    const basic  = extraInputs.basic_salary || (adj.salary || 0) * 0.40;
     const limit1 = extraInputs.hra_received;
     const limit2 = Math.max(0, extraInputs.rent_paid - basic * 0.10);
     const limit3 = basic * (cityType === 'metro' ? 0.50 : 0.40);
-    const exempt = Math.max(0, Math.min(limit1, limit2, limit3));
-    adj.salary   = Math.max(0, (adj.salary || 0) - exempt);
+    adj.salary   = Math.max(0, (adj.salary || 0) - Math.max(0, Math.min(limit1, limit2, limit3)));
   }
-
-  // Sec 10(14): children allowances
   if ((extraInputs.children_in_school || 0) > 0) {
-    const n = Math.min(2, extraInputs.children_in_school);
-    adj.salary = Math.max(0, (adj.salary || 0) - n * 4_800);
+    adj.salary = Math.max(0, (adj.salary || 0) - Math.min(2, extraInputs.children_in_school) * 4_800);
   }
-
   return adj;
 }
 
@@ -199,6 +192,9 @@ export default function App() {
   const [aiLoading,   setAiLoading]   = useState(false);
   const [aiError,     setAiError]     = useState('');
 
+  // Risk profile state — comes from RiskProfiler questionnaire
+  const [riskAnswers, setRiskAnswers] = useState(null); // null = not yet answered
+
   // Form state
   const [incomes,        setIncomes]        = useState({ salary: '' });
   const [loanDeductions, setLoanDeductions] = useState({});
@@ -208,33 +204,27 @@ export default function App() {
   const [age,            setAge]            = useState('');
   const [gender,         setGender]         = useState('male');
   const [occupation,     setOccupation]     = useState('Salaried (MNC/Private)');
-
-  // v5.1 — new state for HRA, 44AD/44ADA, etc.
-  const [cityType,    setCityType]    = useState('non-metro');
-  const [extraInputs, setExtraInputs] = useState({});
-
+  const [cityType,       setCityType]       = useState('non-metro');
+  const [extraInputs,    setExtraInputs]    = useState({});
   const [autoSavingsData, setAutoSavingsData] = useState(null);
   const [goals,           setGoals]           = useState([]);
 
   useEffect(() => {
-    try {
-      const g = JSON.parse(localStorage.getItem('wealthwise_goals') || '[]');
-      setGoals(g);
-    } catch {}
+    try { setGoals(JSON.parse(localStorage.getItem('wealthwise_goals') || '[]')); } catch {}
     setAutoSavingsData(computeSavingsFromTracker());
   }, []);
 
   useEffect(() => {
     if (profile?.lastAnalysis) {
       const p = profile.lastAnalysis;
-      if (p.incomes)      setIncomes(p.incomes);
-      if (p.savings)      setSavingsInput(String(p.savings));
-      if (p.age)          setAge(String(p.age));
-      if (p.gender)       setGender(p.gender);
-      if (p.occupation)   setOccupation(p.occupation);
-      if (p.entityType)   setEntityType(p.entityType);
-      if (p.cityType)     setCityType(p.cityType);       // v5.1
-      if (p.extraInputs)  setExtraInputs(p.extraInputs); // v5.1
+      if (p.incomes)     setIncomes(p.incomes);
+      if (p.savings)     setSavingsInput(String(p.savings));
+      if (p.age)         setAge(String(p.age));
+      if (p.gender)      setGender(p.gender);
+      if (p.occupation)  setOccupation(p.occupation);
+      if (p.entityType)  setEntityType(p.entityType);
+      if (p.cityType)    setCityType(p.cityType);
+      if (p.extraInputs) setExtraInputs(p.extraInputs);
     }
   }, [profile]);
 
@@ -242,30 +232,44 @@ export default function App() {
   const blurReset = e => e.target.style.borderColor = 'var(--border)';
 
   const effectiveSavings = savingsMode === 'auto' && autoSavingsData
-    ? autoSavingsData.annualSavings
-    : (+savingsInput || 0);
-
+    ? autoSavingsData.annualSavings : (+savingsInput || 0);
   const totalIncome = Object.values(incomes).reduce((s, v) => s + (+v || 0), 0);
-  const isFormValid = totalIncome > 0 && effectiveSavings > 0 && age;
   const userAge     = +age || 30;
 
-  // ── ANALYZE ────────────────────────────────────────────────────────────────
+  // ── Input validation ───────────────────────────────────────────────────────
+  const validationErrors = (() => {
+    const errs = [];
+    const ageNum = +age;
+    if (age && (ageNum < 18 || ageNum > 100)) errs.push('Age must be between 18 and 100.');
+    if (totalIncome > 500_000_000)           errs.push('Total income exceeds ₹50Cr — please check your values.');
+    if (totalIncome < 0)                     errs.push('Income values cannot be negative.');
+    if (effectiveSavings > totalIncome && totalIncome > 0) errs.push('Annual savings cannot exceed total income.');
+    if (effectiveSavings < 0)               errs.push('Savings cannot be negative.');
+    if (+savingsInput > 100_000_000)         errs.push('Savings exceeds ₹10Cr — please check your values.');
+    return errs;
+  })();
+  const isFormValid = totalIncome > 0 && effectiveSavings > 0 && age
+    && +age >= 18 && +age <= 100 && validationErrors.length === 0;
 
+  // ── Resolve risk profile — 7-factor if answered, fallback to 3-variable ────
+  const resolvedRiskProfile = riskAnswers
+    ? getRiskProfileFromAnswers({
+        age: userAge, occupation,
+        annualIncome: totalIncome, annualSavings: effectiveSavings,
+        ...riskAnswers,
+      })
+    : getRiskProfile(userAge, occupation, totalIncome, effectiveSavings);
+
+  // ── Analyze ────────────────────────────────────────────────────────────────
   const handleAnalyze = async () => {
-    const incomesNum = Object.fromEntries(Object.entries(incomes).map(([k, v]) => [k, +v || 0]));
-
-    // Apply HRA, 44AD, 44ADA, children adjustments — same logic as IncomeForm preview
+    const incomesNum      = Object.fromEntries(Object.entries(incomes).map(([k, v]) => [k, +v || 0]));
     const adjustedIncomes = applyExtraAdjustments(incomesNum, extraInputs, cityType);
-
-    const trackerDed  = extractTrackerDeductions();
-    const taxResult   = computeMultiIncomeTax(adjustedIncomes, userAge, entityType, loanDeductions, trackerDed);
-    const riskProfile = getRiskProfile(userAge, occupation, totalIncome, effectiveSavings);
-    const portfolios  = generatePortfolios(
-      riskProfile.label, effectiveSavings,
+    const trackerDed      = extractTrackerDeductions();
+    const taxResult       = computeMultiIncomeTax(adjustedIncomes, userAge, entityType, loanDeductions, trackerDed);
+    const portfolios      = generatePortfolios(
+      resolvedRiskProfile.label, effectiveSavings,
       taxResult.newSlabRate, taxResult.oldSlabRate, goals
     );
-
-    // FIX: always project 20 years so projections[tab].preTax[20] is defined
     const projections = portfolios.map(p => ({
       preTax:     projectNetWorth(p.blendedCagr,       effectiveSavings, 20),
       postTaxNew: projectNetWorth(p.blendedPostTaxNew,  effectiveSavings, 20),
@@ -273,26 +277,19 @@ export default function App() {
     }));
 
     const r = {
-      incomes: incomesNum,        // raw (for display / ITR guide)
-      adjustedIncomes,            // used for tax (for display notes)
-      savings: effectiveSavings,
-      age: userAge, gender, occupation, entityType,
+      incomes: incomesNum, adjustedIncomes,
+      savings: effectiveSavings, age: userAge, gender, occupation, entityType,
       cityType, extraInputs,
-      riskProfile, portfolios, projections, taxResult,
+      riskProfile: resolvedRiskProfile, portfolios, projections, taxResult,
       newSlabRate: taxResult.newSlabRate,
       oldSlabRate: taxResult.oldSlabRate,
     };
     setResults(r);
     setStep(3);
-    setAiText('');
-    setAiError('');
+    setAiText(''); setAiError('');
 
     if (user) await saveUserProfile({
-      lastAnalysis: {
-        incomes: incomesNum, savings: effectiveSavings,
-        age: userAge, gender, occupation, entityType,
-        cityType, extraInputs,   // v5.1
-      },
+      lastAnalysis: { incomes: incomesNum, savings: effectiveSavings, age: userAge, gender, occupation, entityType, cityType, extraInputs },
     });
   };
 
@@ -302,17 +299,10 @@ export default function App() {
     try {
       const portfolio = results.portfolios[activeTab];
       const data = await aiExplainPortfolio({
-        profile: {
-          incomes: results.incomes, annual_savings: results.savings,
-          age: results.age, gender: results.gender,
-          occupation: results.occupation, is_senior: results.age >= 60,
-        },
-        portfolioName:    portfolio.name,
-        portfolioAssets:  portfolio.alloc.slice(0, 4).map(a => ({
-          label: a.label, pct: a.pct, cagr: a.cagr,
-          post_tax_cagr: a.postTaxCagrNew, tax_rule_label: a.taxRuleLabel,
-        })),
-        riskLabel:        portfolio.riskLabel,
+        profile: { incomes: results.incomes, annual_savings: results.savings, age: results.age, gender: results.gender, occupation: results.occupation, is_senior: results.age >= 60 },
+        portfolioName:   portfolio.name,
+        portfolioAssets: portfolio.alloc.slice(0, 4).map(a => ({ label: a.label, pct: a.pct, cagr: a.cagr, post_tax_cagr: a.postTaxCagrNew, tax_rule_label: a.taxRuleLabel })),
+        riskLabel:       portfolio.riskLabel,
         marginalSlabRate: results.newSlabRate,
       });
       setAiText(data.explanation);
@@ -330,7 +320,7 @@ export default function App() {
     </div>
   );
 
-  if (showLogin && !user) return <Login onSkip={() => setShowLogin(false)} />;
+  if (showLogin && !user) return <ErrorBoundary section="Login"><Login onSkip={() => setShowLogin(false)} /></ErrorBoundary>;
 
   const PageHero = ({ title, sub }) => (
     <div style={{ ...S.hero, padding: '22px 24px 18px' }}>
@@ -342,20 +332,52 @@ export default function App() {
     </div>
   );
 
-  // ── Secondary routes ───────────────────────────────────────────────────────
+  // ── Secondary routes — each wrapped in ErrorBoundary ──────────────────────
   if (page === 'tracker')
-    return <div style={{ ...S.app, paddingBottom: 72 }}><PageHero title="💳 Expense Tracker" /><Tracker /><BottomNav page={page} setPage={setPage} /></div>;
+    return (
+      <div style={{ ...S.app, paddingBottom: 72 }}>
+        <PageHero title="💳 Expense Tracker" />
+        <ErrorBoundary section="Expense Tracker"><Tracker /></ErrorBoundary>
+        <BottomNav page={page} setPage={setPage} />
+      </div>
+    );
+
   if (page === 'goals')
-    return <div style={{ ...S.app, paddingBottom: 72 }}><PageHero title="🎯 Financial Goals" /><Goals /><BottomNav page={page} setPage={setPage} /></div>;
+    return (
+      <div style={{ ...S.app, paddingBottom: 72 }}>
+        <PageHero title="🎯 Financial Goals" />
+        <ErrorBoundary section="Goals"><Goals /></ErrorBoundary>
+        <BottomNav page={page} setPage={setPage} />
+      </div>
+    );
+
   if (page === 'scenarios')
-    return <div style={{ ...S.app, paddingBottom: 72 }}><PageHero title="🔮 What-If Planner" /><Scenarios /><BottomNav page={page} setPage={setPage} /></div>;
+    return (
+      <div style={{ ...S.app, paddingBottom: 72 }}>
+        <PageHero title="🔮 What-If Planner" />
+        <ErrorBoundary section="Scenario Planner">
+          <Scenarios initialSavings={results?.savings} initialCagr={results?.portfolios?.[0]?.blendedCagr} />
+        </ErrorBoundary>
+        <BottomNav page={page} setPage={setPage} />
+      </div>
+    );
+
   if (page === 'itsections')
-    return <div style={{ ...S.app, paddingBottom: 72 }}><PageHero title="📋 IT Deductions Guide" /><ITSections userProfile={results ? { income: results.taxResult?.totalGrossIncome || totalIncome, savings: results.savings, age, occupation, marginal_slab_rate: results.newSlabRate } : null} /><BottomNav page={page} setPage={setPage} /></div>;
+    return (
+      <div style={{ ...S.app, paddingBottom: 72 }}>
+        <PageHero title="📋 IT Deductions Guide" />
+        <ErrorBoundary section="IT Sections Guide">
+          <ITSections userProfile={results ? { income: results.taxResult?.totalGrossIncome || totalIncome, savings: results.savings, age, occupation, marginal_slab_rate: results.newSlabRate } : null} />
+        </ErrorBoundary>
+        <BottomNav page={page} setPage={setPage} />
+      </div>
+    );
+
   if (page === 'itr')
     return (
       <div style={{ ...S.app, paddingBottom: 72 }}>
         <PageHero title="🗂️ ITR Filing Guide" sub={results ? 'Personalised from your planner data · FY 2026-27 / AY 2027-28' : 'FY 2026-27 / AY 2027-28'} />
-        <ITRFiling plannerResults={results} />
+        <ErrorBoundary section="ITR Filing Guide"><ITRFiling plannerResults={results} /></ErrorBoundary>
         <BottomNav page={page} setPage={setPage} />
       </div>
     );
@@ -377,35 +399,44 @@ export default function App() {
           </div>
         )}
 
-        <div style={S.card}>
-          <div style={S.cardTitle}>💰 Income Sources</div>
-          {/* v5.1: new props cityType, extraInputs passed through */}
-          <IncomeForm
-            value={incomes}
-            onChange={setIncomes}
-            age={userAge}
-            cityType={cityType}
-            onCityChange={setCityType}
-            extraInputs={extraInputs}
-            onExtraChange={setExtraInputs}
-            entityType={entityType}
-            onEntityChange={setEntityType}
-            loanDeductions={loanDeductions}
-            onLoanChange={setLoanDeductions}
-          />
-        </div>
+        {/* Guest mode warning — shown before they fill anything */}
+        {!user && (
+          <div style={S.guestBanner}>
+            ⚠️ <strong style={{ color: 'var(--gold)' }}>Guest mode:</strong> Your data is stored in this browser only.
+            It will be lost if you clear site data, use incognito, or switch devices.{' '}
+            <span style={{ color: 'var(--gold)', cursor: 'pointer', textDecoration: 'underline' }} onClick={() => setShowLogin(true)}>
+              Sign in to save permanently.
+            </span>
+          </div>
+        )}
+
+        <ErrorBoundary section="Income Form">
+          <div style={S.card}>
+            <div style={S.cardTitle}>💰 Income Sources</div>
+            <IncomeForm
+              value={incomes} onChange={setIncomes} age={userAge}
+              cityType={cityType} onCityChange={setCityType}
+              extraInputs={extraInputs} onExtraChange={setExtraInputs}
+              entityType={entityType} onEntityChange={setEntityType}
+              loanDeductions={loanDeductions} onLoanChange={setLoanDeductions}
+            />
+          </div>
+        </ErrorBoundary>
 
         <div style={S.card}>
           <div style={S.cardTitle}>👤 Profile & Savings</div>
           <div style={S.row}>
             <div style={S.field}>
               <label style={S.label}>Age</label>
-              <input style={S.input} type="number" placeholder="e.g. 28" value={age} onChange={e => setAge(e.target.value)} onFocus={focusGold} onBlur={blurReset} />
+              <input style={S.input} type="number" placeholder="e.g. 28" value={age}
+                onChange={e => setAge(e.target.value)} onFocus={focusGold} onBlur={blurReset} />
             </div>
             <div style={S.field}>
               <label style={S.label}>Gender</label>
               <select style={S.select} value={gender} onChange={e => setGender(e.target.value)}>
-                <option value="male">Male</option><option value="female">Female</option><option value="other">Other</option>
+                <option value="male">Male</option>
+                <option value="female">Female</option>
+                <option value="other">Other</option>
               </select>
             </div>
             <div style={S.field}>
@@ -428,7 +459,8 @@ export default function App() {
               </div>
             </div>
             {savingsMode === 'manual' ? (
-              <input style={S.input} type="number" placeholder="Amount you can invest per year (₹)" value={savingsInput} onChange={e => setSavingsInput(e.target.value)} onFocus={focusGold} onBlur={blurReset} />
+              <input style={S.input} type="number" placeholder="Amount you can invest per year (₹)"
+                value={savingsInput} onChange={e => setSavingsInput(e.target.value)} onFocus={focusGold} onBlur={blurReset} />
             ) : (
               <div style={{ background: 'var(--bg3)', borderRadius: 10, padding: '14px 16px' }}>
                 {autoSavingsData ? (
@@ -443,9 +475,7 @@ export default function App() {
                     </div>
                   </>
                 ) : (
-                  <div style={{ fontSize: 13, color: 'var(--muted)' }}>
-                    No tracker data yet. Add transactions in the Tracker tab first.
-                  </div>
+                  <div style={{ fontSize: 13, color: 'var(--muted)' }}>No tracker data yet. Add transactions in the Tracker tab first.</div>
                 )}
               </div>
             )}
@@ -457,10 +487,34 @@ export default function App() {
             </div>
           )}
 
+          {validationErrors.length > 0 && (
+            <div style={S.errBox}>
+              {validationErrors.map((e, i) => (
+                <div key={i} style={{ ...S.errItem, marginBottom: i < validationErrors.length - 1 ? 4 : 0 }}>⚠️ {e}</div>
+              ))}
+            </div>
+          )}
+
           <button style={{ ...S.btn, opacity: isFormValid ? 1 : 0.45 }} disabled={!isFormValid} onClick={() => setStep(2)}>
             Analyse My Savings →
           </button>
         </div>
+
+        {/* Risk profiler questionnaire */}
+        <ErrorBoundary section="Risk Profiler">
+          <RiskProfiler
+            age={userAge}
+            occupation={occupation}
+            annualIncome={totalIncome}
+            annualSavings={effectiveSavings}
+            onProfileDetermined={profile => setRiskAnswers({
+              hasHighDebt:  profile._answers?.hasHighDebt  ?? false,
+              dependents:   profile._answers?.dependents   ?? 0,
+              horizonYears: profile._answers?.horizonYears ?? 10,
+              selfRating:   profile._answers?.selfRating   ?? 3,
+            })}
+          />
+        </ErrorBoundary>
 
         <div style={{ textAlign: 'center', color: 'var(--muted)', fontSize: 12, paddingBottom: 8 }}>
           🔒 {user ? 'Profile saved to your account.' : 'Calculations run in browser.'} · FY 2026-27
@@ -472,11 +526,11 @@ export default function App() {
 
   // ── Step 2: Tax regime confirm ─────────────────────────────────────────────
   if (step === 2) {
-    const incomesNum    = Object.fromEntries(Object.entries(incomes).map(([k, v]) => [k, +v || 0]));
+    const incomesNum         = Object.fromEntries(Object.entries(incomes).map(([k, v]) => [k, +v || 0]));
     const adjustedForPreview = applyExtraAdjustments(incomesNum, extraInputs, cityType);
-    const trackerDed    = extractTrackerDeductions();
-    const taxPreview    = computeMultiIncomeTax(adjustedForPreview, userAge, entityType, loanDeductions, trackerDed);
-    const better        = taxPreview.newRegime.totalTax <= taxPreview.oldRegime.totalTax ? 'new' : 'old';
+    const trackerDed         = extractTrackerDeductions();
+    const taxPreview         = computeMultiIncomeTax(adjustedForPreview, userAge, entityType, loanDeductions, trackerDed);
+    const better             = taxPreview.newRegime.totalTax <= taxPreview.oldRegime.totalTax ? 'new' : 'old';
 
     return (
       <div style={{ ...S.app, paddingBottom: 72 }}>
@@ -485,55 +539,56 @@ export default function App() {
           <h1 style={{ ...S.heroTitle, fontSize: 26 }}>Confirm Tax Regime</h1>
         </div>
         <div style={S.container}>
-          <div style={S.card}>
-            <div style={S.cardTitle}>🧾 FY 2026-27 — Full Tax Summary</div>
-            <div style={{ display: 'flex', gap: 12, marginBottom: 18 }}>
-              {[
-                { key: 'new', label: 'New Regime', sub: `₹75K std deduction. Slab: ${(taxPreview.newSlabRate*100).toFixed(0)}%`, tax: taxPreview.newRegime.totalTax },
-                { key: 'old', label: 'Old Regime', sub: `80C+80D+NPS+Loans applied. Slab: ${(taxPreview.oldSlabRate*100).toFixed(0)}%`, tax: taxPreview.oldRegime.totalTax },
-              ].map(r => (
-                <div key={r.key} style={S.regimeBox(better === r.key)}>
-                  <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, marginBottom: 4 }}>{r.label}</div>
-                  <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 10, lineHeight: 1.4 }}>{r.sub}</div>
-                  <div style={{ fontFamily: 'var(--font-display)', fontSize: 24, fontWeight: 800, color: r.tax === 0 ? 'var(--emerald)' : 'var(--text)' }}>
-                    {r.tax === 0 ? '₹0' : fmtINR(r.tax)}
+          <ErrorBoundary section="Tax Regime Comparison">
+            <div style={S.card}>
+              <div style={S.cardTitle}>🧾 FY 2026-27 — Full Tax Summary</div>
+              <div style={{ display: 'flex', gap: 12, marginBottom: 18 }}>
+                {[
+                  { key: 'new', label: 'New Regime', sub: `₹75K std deduction. Slab: ${(taxPreview.newSlabRate*100).toFixed(0)}%`, tax: taxPreview.newRegime.totalTax },
+                  { key: 'old', label: 'Old Regime', sub: `80C+80D+NPS+Loans applied. Slab: ${(taxPreview.oldSlabRate*100).toFixed(0)}%`, tax: taxPreview.oldRegime.totalTax },
+                ].map(r => (
+                  <div key={r.key} style={S.regimeBox(better === r.key)}>
+                    <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, marginBottom: 4 }}>{r.label}</div>
+                    <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 10, lineHeight: 1.4 }}>{r.sub}</div>
+                    <div style={{ fontFamily: 'var(--font-display)', fontSize: 24, fontWeight: 800, color: r.tax === 0 ? 'var(--emerald)' : 'var(--text)' }}>
+                      {r.tax === 0 ? '₹0' : fmtINR(r.tax)}
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--muted)' }}>total tax</div>
+                    {better === r.key && <div style={{ marginTop: 8, fontSize: 11, color: 'var(--emerald)', fontWeight: 700 }}>✓ BETTER — Saves {fmtINR(taxPreview.taxSaving)}</div>}
                   </div>
-                  <div style={{ fontSize: 11, color: 'var(--muted)' }}>total tax</div>
-                  {better === r.key && <div style={{ marginTop: 8, fontSize: 11, color: 'var(--emerald)', fontWeight: 700 }}>✓ BETTER — Saves {fmtINR(taxPreview.taxSaving)}</div>}
+                ))}
+              </div>
+
+              {(taxPreview.hraExemption > 0 || taxPreview.sec1014Exemption > 0) && (
+                <div style={{ background: 'rgba(29,184,115,.07)', border: '1px solid rgba(29,184,115,.2)', borderRadius: 10, padding: '10px 14px', marginBottom: 14, fontSize: 13, color: 'var(--muted)' }}>
+                  ✅ Salary exemptions applied:
+                  {taxPreview.hraExemption > 0 && ` HRA ${fmtINR(taxPreview.hraExemption)}`}
+                  {taxPreview.sec1014Exemption > 0 && ` · Children allowance ${fmtINR(taxPreview.sec1014Exemption)}`}
                 </div>
-              ))}
-            </div>
+              )}
 
-            {/* HRA / exemption callout */}
-            {(taxPreview.hraExemption > 0 || taxPreview.sec1014Exemption > 0) && (
-              <div style={{ background: 'rgba(29,184,115,.07)', border: '1px solid rgba(29,184,115,.2)', borderRadius: 10, padding: '10px 14px', marginBottom: 14, fontSize: 13, color: 'var(--muted)' }}>
-                ✅ Salary exemptions applied:
-                {taxPreview.hraExemption > 0 && ` HRA ${fmtINR(taxPreview.hraExemption)}`}
-                {taxPreview.sec1014Exemption > 0 && ` · Children allowance ${fmtINR(taxPreview.sec1014Exemption)}`}
+              <div style={{ background: 'var(--bg3)', borderRadius: 10, padding: '12px 16px', marginBottom: 16, fontSize: 13, color: 'var(--muted)', lineHeight: 1.7 }}>
+                💡 New regime slab: <strong style={{ color: 'var(--text)' }}>{(taxPreview.newSlabRate*100).toFixed(0)}%</strong> · Old regime slab: <strong style={{ color: 'var(--text)' }}>{(taxPreview.oldSlabRate*100).toFixed(0)}%</strong>.
+                Results will show TWO different post-tax corpora — one per regime.
               </div>
-            )}
 
-            <div style={{ background: 'var(--bg3)', borderRadius: 10, padding: '12px 16px', marginBottom: 16, fontSize: 13, color: 'var(--muted)', lineHeight: 1.7 }}>
-              💡 New regime slab: <strong style={{ color: 'var(--text)' }}>{(taxPreview.newSlabRate*100).toFixed(0)}%</strong> · Old regime slab: <strong style={{ color: 'var(--text)' }}>{(taxPreview.oldSlabRate*100).toFixed(0)}%</strong>.
-              Results will show TWO different post-tax corpora — one per regime.
-            </div>
+              {taxPreview.specialTaxTotal > 0 && (
+                <div style={{ background: 'var(--bg3)', borderRadius: 10, padding: '12px 16px', marginBottom: 16, fontSize: 13 }}>
+                  <div style={{ fontWeight: 700, color: 'var(--text)', marginBottom: 8 }}>Special Rate Taxes (both regimes)</div>
+                  {taxPreview.ltcgEquityTax   > 0 && <div style={{ display:'flex', justifyContent:'space-between', color:'var(--muted)', padding:'3px 0' }}><span>LTCG Equity 10%</span><span style={{ color:'#4A9EE8', fontWeight:600 }}>{fmtINR(taxPreview.ltcgEquityTax)}</span></div>}
+                  {taxPreview.stcgEquityTax   > 0 && <div style={{ display:'flex', justifyContent:'space-between', color:'var(--muted)', padding:'3px 0' }}><span>STCG Equity 15%</span><span style={{ color:'#E8921A', fontWeight:600 }}>{fmtINR(taxPreview.stcgEquityTax)}</span></div>}
+                  {taxPreview.ltcgDebtTax     > 0 && <div style={{ display:'flex', justifyContent:'space-between', color:'var(--muted)', padding:'3px 0' }}><span>LTCG Debt MF 20%</span><span style={{ color:'#7c8cf8', fontWeight:600 }}>{fmtINR(taxPreview.ltcgDebtTax)}</span></div>}
+                  {taxPreview.ltcgPropertyTax > 0 && <div style={{ display:'flex', justifyContent:'space-between', color:'var(--muted)', padding:'3px 0' }}><span>LTCG Property 20%</span><span style={{ color:'#fb923c', fontWeight:600 }}>{fmtINR(taxPreview.ltcgPropertyTax)}</span></div>}
+                  {taxPreview.cryptoTax       > 0 && <div style={{ display:'flex', justifyContent:'space-between', color:'var(--muted)', padding:'3px 0' }}><span>Crypto 30% flat</span><span style={{ color:'#E84040', fontWeight:600 }}>{fmtINR(taxPreview.cryptoTax)}</span></div>}
+                </div>
+              )}
 
-            {taxPreview.specialTaxTotal > 0 && (
-              <div style={{ background: 'var(--bg3)', borderRadius: 10, padding: '12px 16px', marginBottom: 16, fontSize: 13 }}>
-                <div style={{ fontWeight: 700, color: 'var(--text)', marginBottom: 8 }}>Special Rate Taxes (both regimes)</div>
-                {taxPreview.ltcgEquityTax   > 0 && <div style={{ display:'flex', justifyContent:'space-between', color:'var(--muted)', padding:'3px 0' }}><span>LTCG Equity 10%</span><span style={{ color:'#4A9EE8', fontWeight:600 }}>{fmtINR(taxPreview.ltcgEquityTax)}</span></div>}
-                {taxPreview.stcgEquityTax   > 0 && <div style={{ display:'flex', justifyContent:'space-between', color:'var(--muted)', padding:'3px 0' }}><span>STCG Equity 15%</span><span style={{ color:'#E8921A', fontWeight:600 }}>{fmtINR(taxPreview.stcgEquityTax)}</span></div>}
-                {taxPreview.ltcgDebtTax     > 0 && <div style={{ display:'flex', justifyContent:'space-between', color:'var(--muted)', padding:'3px 0' }}><span>LTCG Debt MF 20%</span><span style={{ color:'#7c8cf8', fontWeight:600 }}>{fmtINR(taxPreview.ltcgDebtTax)}</span></div>}
-                {taxPreview.ltcgPropertyTax > 0 && <div style={{ display:'flex', justifyContent:'space-between', color:'var(--muted)', padding:'3px 0' }}><span>LTCG Property 20%</span><span style={{ color:'#fb923c', fontWeight:600 }}>{fmtINR(taxPreview.ltcgPropertyTax)}</span></div>}
-                {taxPreview.cryptoTax       > 0 && <div style={{ display:'flex', justifyContent:'space-between', color:'var(--muted)', padding:'3px 0' }}><span>Crypto 30% flat</span><span style={{ color:'#E84040', fontWeight:600 }}>{fmtINR(taxPreview.cryptoTax)}</span></div>}
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button style={{ ...S.btnOutline, flex: 1 }} onClick={() => setStep(1)}>← Back</button>
+                <button style={{ ...S.btn, flex: 2, marginTop: 0 }} onClick={handleAnalyze}>Generate My Plan →</button>
               </div>
-            )}
-
-            <div style={{ display: 'flex', gap: 10 }}>
-              <button style={{ ...S.btnOutline, flex: 1 }} onClick={() => setStep(1)}>← Back</button>
-              <button style={{ ...S.btn, flex: 2, marginTop: 0 }} onClick={handleAnalyze}>Generate My Plan →</button>
             </div>
-          </div>
+          </ErrorBoundary>
         </div>
         <BottomNav page={page} setPage={setPage} />
       </div>
@@ -544,10 +599,10 @@ export default function App() {
   const { riskProfile, portfolios, projections, taxResult, newSlabRate, oldSlabRate } = results;
   const portfolio = portfolios[activeTab];
   const proj      = projections[activeTab];
-  const maxY      = projYears; // 10 or 20 — both safe since we always project 20yr
+  const maxY      = projYears;
 
   const tripleChart = proj.preTax.slice(0, maxY + 1).map((p, i) => ({
-    year:         p.year,
+    year: p.year,
     'Pre-Tax':    p.value,
     'New Regime': proj.postTaxNew[i]?.value ?? 0,
     'Old Regime': proj.postTaxOld[i]?.value ?? 0,
@@ -609,7 +664,7 @@ export default function App() {
           <span>Post-tax (old): <strong style={{ color: '#9B72CF' }}>{portfolio.blendedPostTaxOld}%</strong></span>
         </div>
 
-        {/* HRA / exemptions applied note */}
+        {/* HRA / exemptions note */}
         {(taxResult.hraExemption > 0 || taxResult.sec1014Exemption > 0) && (
           <div style={{ background: 'rgba(29,184,115,.07)', border: '1px solid rgba(29,184,115,.2)', borderRadius: 10, padding: '10px 14px', marginBottom: 14, fontSize: 13, color: 'var(--muted)' }}>
             ✅ Salary exemptions applied:
@@ -618,7 +673,7 @@ export default function App() {
           </div>
         )}
 
-        {/* 44AD / 44ADA active notice */}
+        {/* 44AD / 44ADA notices */}
         {results.extraInputs?.opt_44ad && (
           <div style={{ background: 'rgba(29,184,115,.07)', border: '1px solid rgba(29,184,115,.2)', borderRadius: 10, padding: '10px 14px', marginBottom: 14, fontSize: 13, color: 'var(--muted)' }}>
             ✅ Sec 44AD presumptive business applied — {results.extraInputs.digital_receipts ? '6%' : '8%'} of gross turnover.
@@ -627,6 +682,16 @@ export default function App() {
         {results.extraInputs?.opt_44ada && (
           <div style={{ background: 'rgba(29,184,115,.07)', border: '1px solid rgba(29,184,115,.2)', borderRadius: 10, padding: '10px 14px', marginBottom: 14, fontSize: 13, color: 'var(--muted)' }}>
             ✅ Sec 44ADA presumptive professional applied — 50% of gross receipts deemed as income.
+          </div>
+        )}
+
+        {/* Bitcoin risk disclosure — shown whenever Bitcoin is in the portfolio */}
+        {portfolio.alloc.some(a => a.key === 'Bitcoin') && (
+          <div style={S.bitcoinWarn}>
+            ⚠️ <strong>Crypto Risk Disclosure:</strong> This portfolio includes Bitcoin ({portfolio.alloc.find(a => a.key === 'Bitcoin')?.pct}%).
+            The 35% CAGR figure is a long-run historical average that includes multiple periods of 80%+ drawdown.
+            Crypto is highly volatile, subject to 30% flat tax with no loss set-off, and currently unregulated in India.
+            Only allocate what you can afford to lose entirely. This is not financial advice.
           </div>
         )}
 
@@ -647,130 +712,135 @@ export default function App() {
           ))}
         </div>
 
-        {/* Allocation */}
-        <div style={S.card}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18 }}>
-            <span style={{ fontFamily: 'var(--font-display)', fontSize: 17, fontWeight: 700 }}>📊 Portfolio Allocation</span>
-            <span style={S.badge(riskProfile.color)}>{portfolio.riskLabel}</span>
-          </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 24, alignItems: 'center' }}>
-            <ResponsiveContainer width={190} height={190} style={{ flexShrink: 0 }}>
-              <PieChart>
-                <Pie data={portfolio.alloc} dataKey="pct" cx="50%" cy="50%" innerRadius={52} outerRadius={86} paddingAngle={2}>
-                  {portfolio.alloc.map((a, i) => <Cell key={i} fill={a.color} />)}
-                </Pie>
-                <Tooltip formatter={v => `${v}%`} contentStyle={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 }} />
-              </PieChart>
-            </ResponsiveContainer>
-            <div style={{ flex: 1, minWidth: 200 }}>
-              {portfolio.alloc.map((a, i) => (
-                <div key={a.key} style={{ ...S.assetRow, borderBottom: i === portfolio.alloc.length - 1 ? 'none' : '1px solid var(--border)' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 9, flex: 1 }}>
-                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: a.color, flexShrink: 0 }} />
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 13, fontWeight: 600 }}>{a.label}</div>
-                      <div style={{ fontSize: 11, color: 'var(--muted)' }}>
-                        {a.cagr}% → <span style={{ color: 'var(--emerald)' }}>{a.postTaxCagrNew}%</span> (new) / <span style={{ color: '#9B72CF' }}>{a.postTaxCagrOld}%</span> (old)
-                        {' '}· <span style={{ color: a.taxRuleColor || 'var(--muted)' }}>{a.taxRuleLabel}</span>
-                      </div>
-                      <div style={{ height: 4, borderRadius: 2, background: 'var(--bg)', marginTop: 4, overflow: 'hidden' }}>
-                        <div style={{ height: '100%', width: `${a.pct}%`, background: a.color, transition: 'width .6s' }} />
+        {/* Allocation card */}
+        <ErrorBoundary section="Portfolio Allocation">
+          <div style={S.card}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18 }}>
+              <span style={{ fontFamily: 'var(--font-display)', fontSize: 17, fontWeight: 700 }}>📊 Portfolio Allocation</span>
+              <span style={S.badge(riskProfile.color)}>{portfolio.riskLabel}</span>
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 24, alignItems: 'center' }}>
+              <ResponsiveContainer width={190} height={190} style={{ flexShrink: 0 }}>
+                <PieChart>
+                  <Pie data={portfolio.alloc} dataKey="pct" cx="50%" cy="50%" innerRadius={52} outerRadius={86} paddingAngle={2}>
+                    {portfolio.alloc.map((a, i) => <Cell key={i} fill={a.color} />)}
+                  </Pie>
+                  <Tooltip formatter={v => `${v}%`} contentStyle={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 }} />
+                </PieChart>
+              </ResponsiveContainer>
+              <div style={{ flex: 1, minWidth: 200 }}>
+                {portfolio.alloc.map((a, i) => (
+                  <div key={a.key} style={{ ...S.assetRow, borderBottom: i === portfolio.alloc.length - 1 ? 'none' : '1px solid var(--border)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 9, flex: 1 }}>
+                      <div style={{ width: 8, height: 8, borderRadius: '50%', background: a.color, flexShrink: 0 }} />
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600 }}>{a.label}</div>
+                        <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+                          {a.cagr}% → <span style={{ color: 'var(--emerald)' }}>{a.postTaxCagrNew}%</span> (new) / <span style={{ color: '#9B72CF' }}>{a.postTaxCagrOld}%</span> (old)
+                          {' '}· <span style={{ color: a.taxRuleColor || 'var(--muted)' }}>{a.taxRuleLabel}</span>
+                        </div>
+                        <div style={{ height: 4, borderRadius: 2, background: 'var(--bg)', marginTop: 4, overflow: 'hidden' }}>
+                          <div style={{ height: '100%', width: `${a.pct}%`, background: a.color, transition: 'width .6s' }} />
+                        </div>
                       </div>
                     </div>
+                    <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: 10 }}>
+                      <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, color: a.color }}>{a.pct}%</div>
+                      <div style={{ fontSize: 12, color: 'var(--muted)' }}>{fmtINR(a.amount)}/yr</div>
+                    </div>
                   </div>
-                  <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: 10 }}>
-                    <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, color: a.color }}>{a.pct}%</div>
-                    <div style={{ fontSize: 12, color: 'var(--muted)' }}>{fmtINR(a.amount)}/yr</div>
-                  </div>
+                ))}
+              </div>
+            </div>
+            <div style={S.aiBox}>
+              <div style={S.aiLabel}>🤖 AI Financial Advisor</div>
+              {!aiText && !aiLoading && <button style={S.btnGreen} onClick={handleAiExplain}>✨ Explain This Portfolio</button>}
+              {aiLoading && <div style={{ ...S.aiText, color: 'var(--muted)', animation: 'pulse 1.5s infinite' }}>Analysing your income profile…</div>}
+              {aiText    && <div style={S.aiText}>{aiText}</div>}
+              {aiError   && <div style={{ ...S.aiText, color: 'var(--red)', fontSize: 13 }}>{aiError}</div>}
+            </div>
+          </div>
+        </ErrorBoundary>
+
+        {/* Triple corpus chart */}
+        <ErrorBoundary section="Wealth Projection Chart">
+          <div style={S.card}>
+            <div style={S.cardTitle}>📈 {projYears}-Year Corpus — New vs Old Regime</div>
+            <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 4 }}>
+              Pre-tax: ₹{worthPre}L · New Regime: ₹{worthNew}L · Old Regime: ₹{worthOld}L
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>
+              Tax drag (new regime): ₹{taxDragNew}L over {projYears} years
+            </div>
+            <ResponsiveContainer width="100%" height={220}>
+              <AreaChart data={tripleChart}>
+                <defs>
+                  <linearGradient id="gPre" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#888" stopOpacity={0.12}/><stop offset="100%" stopColor="#888" stopOpacity={0}/></linearGradient>
+                  <linearGradient id="gNew" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="var(--emerald)" stopOpacity={0.2}/><stop offset="100%" stopColor="var(--emerald)" stopOpacity={0}/></linearGradient>
+                  <linearGradient id="gOld" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#9B72CF" stopOpacity={0.2}/><stop offset="100%" stopColor="#9B72CF" stopOpacity={0}/></linearGradient>
+                </defs>
+                <XAxis dataKey="year" tick={{ fill:'var(--muted)', fontSize:11 }} axisLine={false} tickLine={false} interval={Math.floor(projYears/5)} />
+                <YAxis tick={{ fill:'var(--muted)', fontSize:11 }} axisLine={false} tickLine={false} tickFormatter={v => `₹${v}L`} />
+                <Tooltip content={<ChartTip />} />
+                <Legend wrapperStyle={{ fontSize: 12 }} />
+                <Area type="monotone" dataKey="Pre-Tax"    stroke="#666"           strokeWidth={1} fill="url(#gPre)" strokeDasharray="3 3" />
+                <Area type="monotone" dataKey="New Regime" stroke="var(--emerald)" strokeWidth={2} fill="url(#gNew)" />
+                <Area type="monotone" dataKey="Old Regime" stroke="#9B72CF"        strokeWidth={2} fill="url(#gOld)" />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </ErrorBoundary>
+
+        {/* Tax summary */}
+        <ErrorBoundary section="Tax Summary">
+          <div style={S.card}>
+            <div style={S.cardTitle}>🧾 Tax Summary — FY 2026-27</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
+              {[
+                { label: 'Gross Income', value: fmtINR(taxResult.totalGrossIncome), hi: false },
+                { label: 'Best Regime',  value: taxResult.bestRegime === 'new' ? 'New Regime' : 'Old Regime', hi: false },
+                { label: 'Ordinary Tax', value: fmtINR(taxResult.bestRegime === 'new' ? taxResult.newRegime.tax : taxResult.oldRegime.tax), hi: false },
+                { label: 'Total Tax',    value: taxResult.bestTax === 0 ? '₹0 (87A Rebate)' : fmtINR(taxResult.bestTax), hi: true },
+              ].map(r => (
+                <div key={r.label} style={{ background: 'var(--bg3)', borderRadius: 10, padding: '12px 15px' }}>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>{r.label}</div>
+                  <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 15, color: r.hi ? 'var(--emerald)' : 'var(--text)' }}>{r.value}</div>
                 </div>
               ))}
             </div>
-          </div>
-          <div style={S.aiBox}>
-            <div style={S.aiLabel}>🤖 AI Financial Advisor</div>
-            {!aiText && !aiLoading && <button style={S.btnGreen} onClick={handleAiExplain}>✨ Explain This Portfolio</button>}
-            {aiLoading && <div style={{ ...S.aiText, color: 'var(--muted)', animation: 'pulse 1.5s infinite' }}>Analysing your income profile…</div>}
-            {aiText    && <div style={S.aiText}>{aiText}</div>}
-            {aiError   && <div style={{ ...S.aiText, color: 'var(--red)', fontSize: 13 }}>{aiError}</div>}
-          </div>
-        </div>
 
-        {/* Triple corpus chart */}
-        <div style={S.card}>
-          <div style={S.cardTitle}>📈 {projYears}-Year Corpus — New vs Old Regime</div>
-          <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 4 }}>
-            Pre-tax: ₹{worthPre}L · New Regime: ₹{worthNew}L · Old Regime: ₹{worthOld}L
-          </div>
-          <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>
-            Tax drag (new regime): ₹{taxDragNew}L over {projYears} years
-          </div>
-          <ResponsiveContainer width="100%" height={220}>
-            <AreaChart data={tripleChart}>
-              <defs>
-                <linearGradient id="gPre" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#888" stopOpacity={0.12}/><stop offset="100%" stopColor="#888" stopOpacity={0}/></linearGradient>
-                <linearGradient id="gNew" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="var(--emerald)" stopOpacity={0.2}/><stop offset="100%" stopColor="var(--emerald)" stopOpacity={0}/></linearGradient>
-                <linearGradient id="gOld" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#9B72CF" stopOpacity={0.2}/><stop offset="100%" stopColor="#9B72CF" stopOpacity={0}/></linearGradient>
-              </defs>
-              <XAxis dataKey="year" tick={{ fill:'var(--muted)', fontSize:11 }} axisLine={false} tickLine={false} interval={Math.floor(projYears/5)} />
-              <YAxis tick={{ fill:'var(--muted)', fontSize:11 }} axisLine={false} tickLine={false} tickFormatter={v => `₹${v}L`} />
-              <Tooltip content={<ChartTip />} />
-              <Legend wrapperStyle={{ fontSize: 12 }} />
-              <Area type="monotone" dataKey="Pre-Tax"    stroke="#666"           strokeWidth={1} fill="url(#gPre)" strokeDasharray="3 3" />
-              <Area type="monotone" dataKey="New Regime" stroke="var(--emerald)" strokeWidth={2} fill="url(#gNew)" />
-              <Area type="monotone" dataKey="Old Regime" stroke="#9B72CF"        strokeWidth={2} fill="url(#gOld)" />
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
-
-        {/* Tax summary */}
-        <div style={S.card}>
-          <div style={S.cardTitle}>🧾 Tax Summary — FY 2026-27</div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
-            {[
-              { label: 'Gross Income', value: fmtINR(taxResult.totalGrossIncome), hi: false },
-              { label: 'Best Regime',  value: taxResult.bestRegime === 'new' ? 'New Regime' : 'Old Regime', hi: false },
-              { label: 'Ordinary Tax', value: fmtINR(taxResult.bestRegime === 'new' ? taxResult.newRegime.tax : taxResult.oldRegime.tax), hi: false },
-              { label: 'Total Tax',    value: taxResult.bestTax === 0 ? '₹0 (87A Rebate)' : fmtINR(taxResult.bestTax), hi: true },
-            ].map(r => (
-              <div key={r.label} style={{ background: 'var(--bg3)', borderRadius: 10, padding: '12px 15px' }}>
-                <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>{r.label}</div>
-                <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 15, color: r.hi ? 'var(--emerald)' : 'var(--text)' }}>{r.value}</div>
+            {taxResult.specialTaxTotal > 0 && (
+              <div style={{ background: 'var(--bg3)', borderRadius: 10, padding: '12px 15px', fontSize: 13 }}>
+                <div style={{ fontWeight: 700, color: 'var(--text)', marginBottom: 8 }}>Special Rate Taxes</div>
+                {taxResult.ltcgEquityTax      > 0 && <div style={{ display:'flex', justifyContent:'space-between', color:'var(--muted)', padding:'4px 0' }}><span>LTCG Equity 10%</span><span style={{ color:'#4A9EE8', fontWeight:700 }}>{fmtINR(taxResult.ltcgEquityTax)}</span></div>}
+                {taxResult.stcgEquityTax      > 0 && <div style={{ display:'flex', justifyContent:'space-between', color:'var(--muted)', padding:'4px 0' }}><span>STCG Equity 15%</span><span style={{ color:'#E8921A', fontWeight:700 }}>{fmtINR(taxResult.stcgEquityTax)}</span></div>}
+                {taxResult.ltcgDebtTax        > 0 && <div style={{ display:'flex', justifyContent:'space-between', color:'var(--muted)', padding:'4px 0' }}><span>LTCG Debt MF 20% (Sec 112)</span><span style={{ color:'#7c8cf8', fontWeight:700 }}>{fmtINR(taxResult.ltcgDebtTax)}</span></div>}
+                {taxResult.ltcgPropertyTax    > 0 && <div style={{ display:'flex', justifyContent:'space-between', color:'var(--muted)', padding:'4px 0' }}><span>LTCG Property 20%</span><span style={{ color:'#fb923c', fontWeight:700 }}>{fmtINR(taxResult.ltcgPropertyTax)}</span></div>}
+                {taxResult.ltcgPropertyNewTax > 0 && <div style={{ display:'flex', justifyContent:'space-between', color:'var(--muted)', padding:'4px 0' }}><span>LTCG Property 12.5%</span><span style={{ color:'#ffa726', fontWeight:700 }}>{fmtINR(taxResult.ltcgPropertyNewTax)}</span></div>}
+                {taxResult.cryptoTax          > 0 && <div style={{ display:'flex', justifyContent:'space-between', color:'var(--muted)', padding:'4px 0' }}><span>Crypto 30%</span><span style={{ color:'#E84040', fontWeight:700 }}>{fmtINR(taxResult.cryptoTax)}</span></div>}
               </div>
-            ))}
-          </div>
+            )}
 
-          {taxResult.specialTaxTotal > 0 && (
-            <div style={{ background: 'var(--bg3)', borderRadius: 10, padding: '12px 15px', fontSize: 13 }}>
-              <div style={{ fontWeight: 700, color: 'var(--text)', marginBottom: 8 }}>Special Rate Taxes</div>
-              {taxResult.ltcgEquityTax      > 0 && <div style={{ display:'flex', justifyContent:'space-between', color:'var(--muted)', padding:'4px 0' }}><span>LTCG Equity 10%</span><span style={{ color:'#4A9EE8', fontWeight:700 }}>{fmtINR(taxResult.ltcgEquityTax)}</span></div>}
-              {taxResult.stcgEquityTax      > 0 && <div style={{ display:'flex', justifyContent:'space-between', color:'var(--muted)', padding:'4px 0' }}><span>STCG Equity 15%</span><span style={{ color:'#E8921A', fontWeight:700 }}>{fmtINR(taxResult.stcgEquityTax)}</span></div>}
-              {taxResult.ltcgDebtTax        > 0 && <div style={{ display:'flex', justifyContent:'space-between', color:'var(--muted)', padding:'4px 0' }}><span>LTCG Debt MF 20% (Sec 112)</span><span style={{ color:'#7c8cf8', fontWeight:700 }}>{fmtINR(taxResult.ltcgDebtTax)}</span></div>}
-              {taxResult.ltcgPropertyTax    > 0 && <div style={{ display:'flex', justifyContent:'space-between', color:'var(--muted)', padding:'4px 0' }}><span>LTCG Property 20%</span><span style={{ color:'#fb923c', fontWeight:700 }}>{fmtINR(taxResult.ltcgPropertyTax)}</span></div>}
-              {taxResult.ltcgPropertyNewTax > 0 && <div style={{ display:'flex', justifyContent:'space-between', color:'var(--muted)', padding:'4px 0' }}><span>LTCG Property 12.5%</span><span style={{ color:'#ffa726', fontWeight:700 }}>{fmtINR(taxResult.ltcgPropertyNewTax)}</span></div>}
-              {taxResult.cryptoTax          > 0 && <div style={{ display:'flex', justifyContent:'space-between', color:'var(--muted)', padding:'4px 0' }}><span>Crypto 30%</span><span style={{ color:'#E84040', fontWeight:700 }}>{fmtINR(taxResult.cryptoTax)}</span></div>}
-            </div>
-          )}
-
-          {/* Section 54 callout */}
-          {(taxResult.ltcgPropertyTax > 0 || taxResult.ltcgPropertyNewTax > 0) && (
-            <div style={{ background: 'linear-gradient(135deg,rgba(29,184,115,.09),rgba(232,146,26,.05))', border: '1px solid rgba(29,184,115,.3)', borderRadius: 12, padding: '16px 18px', marginTop: 14 }}>
-              <div style={{ fontFamily: 'var(--font-display)', fontSize: 14, fontWeight: 700, color: 'var(--emerald)', marginBottom: 8 }}>
-                🏠 Sections 54 / 54F / 54EC — Save up to {fmtINR((taxResult.ltcgPropertyTax || 0) + (taxResult.ltcgPropertyNewTax || 0))}
+            {(taxResult.ltcgPropertyTax > 0 || taxResult.ltcgPropertyNewTax > 0) && (
+              <div style={{ background: 'linear-gradient(135deg,rgba(29,184,115,.09),rgba(232,146,26,.05))', border: '1px solid rgba(29,184,115,.3)', borderRadius: 12, padding: '16px 18px', marginTop: 14 }}>
+                <div style={{ fontFamily: 'var(--font-display)', fontSize: 14, fontWeight: 700, color: 'var(--emerald)', marginBottom: 8 }}>
+                  🏠 Sections 54 / 54F / 54EC — Save up to {fmtINR((taxResult.ltcgPropertyTax || 0) + (taxResult.ltcgPropertyNewTax || 0))}
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.6, marginBottom: 6 }}>📋 <strong style={{ color:'var(--text)' }}>Sec 54:</strong> Reinvest in new house within 2yr (or construct within 3yr).</div>
+                <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.6, marginBottom: 6 }}>📋 <strong style={{ color:'var(--text)' }}>Sec 54F:</strong> Sell any long-term asset → reinvest full proceeds in house.</div>
+                <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>📋 <strong style={{ color:'var(--text)' }}>Sec 54EC:</strong> Up to ₹50L in NHAI/REC bonds within 6 months of sale.</div>
+                <button style={{ marginTop: 12, background: 'transparent', color: 'var(--emerald)', border: '1px solid var(--emerald)', borderRadius: 8, padding: '6px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+                  onClick={() => setPage('itsections')}>View Sec 54 in IT Guide →</button>
               </div>
-              <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.6, marginBottom: 6 }}>📋 <strong style={{ color:'var(--text)' }}>Sec 54:</strong> Reinvest in new house within 2yr (or construct within 3yr).</div>
-              <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.6, marginBottom: 6 }}>📋 <strong style={{ color:'var(--text)' }}>Sec 54F:</strong> Sell any long-term asset → reinvest full proceeds in house.</div>
-              <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>📋 <strong style={{ color:'var(--text)' }}>Sec 54EC:</strong> Up to ₹50L in NHAI/REC bonds within 6 months of sale.</div>
-              <button style={{ marginTop: 12, background: 'transparent', color: 'var(--emerald)', border: '1px solid var(--emerald)', borderRadius: 8, padding: '6px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
-                onClick={() => setPage('itsections')}>View Sec 54 in IT Guide →</button>
-            </div>
-          )}
+            )}
 
-          {taxResult.trackerDeductionsUsed > 0 && (
-            <div style={{ fontSize: 12, color: 'var(--emerald)', marginTop: 10 }}>
-              💚 {fmtINR(taxResult.trackerDeductionsUsed)} of deductions sourced automatically from your Expense Tracker.
-            </div>
-          )}
-        </div>
+            {taxResult.trackerDeductionsUsed > 0 && (
+              <div style={{ fontSize: 12, color: 'var(--emerald)', marginTop: 10 }}>
+                💚 {fmtINR(taxResult.trackerDeductionsUsed)} of deductions sourced automatically from your Expense Tracker.
+              </div>
+            )}
+          </div>
+        </ErrorBoundary>
 
         <div style={{ display: 'flex', gap: 10, paddingBottom: 16 }}>
           <button style={{ ...S.btnOutline, flex: 1 }} onClick={() => { setStep(1); setResults(null); setActiveTab(0); }}>← Start Over</button>

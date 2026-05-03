@@ -38,7 +38,7 @@ deactivate () {
 # unset irrelevant variables
 deactivate nondestructive
 
-VIRTUAL_ENV="C:\Users\KIIT0001\Documents\studymaterial\WealthWise\files (3)\backend\venv"
+VIRTUAL_ENV="C:\Users\KIIT0001\Documents\studymaterial\WealthWise\final\backend\venv"
 export VIRTUAL_ENV
 
 _OLD_VIRTUAL_PATH="$PATH"

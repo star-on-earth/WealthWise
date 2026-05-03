@@ -126,11 +126,13 @@ const CustomTooltip = ({ active, payload, label }) => {
 
 // ─── MAIN COMPONENT ───────────────────────────────────────────────────────────
 
-export default function Scenarios() {
+export default function Scenarios({ initialSavings, initialCagr }) {
   const [activePreset, setActivePreset] = useState(null);
-  const [scenA, setSceA] = useState({ label: 'Scenario A', annualSavings: 120000, cagrPct: 7,  years: 20, stepUpPct: 0 });
-  const [scenB, setSceB] = useState({ label: 'Scenario B', annualSavings: 120000, cagrPct: 13, years: 20, stepUpPct: 0 });
-
+  const defSavings = initialSavings || 120000;
+  const defCagr    = initialCagr    || 13;
+  const [scenA, setSceA] = useState({ label: 'Scenario A', annualSavings: defSavings, cagrPct: 7,       years: 20, stepUpPct: 0 });
+  const [scenB, setSceB] = useState({ label: 'Scenario B', annualSavings: defSavings, cagrPct: defCagr, years: 20, stepUpPct: 0 });
+  
   const applyPreset = (p) => {
     setActivePreset(p.label);
     setSceA(p.a); setSceB(p.b);

@@ -162,7 +162,7 @@ export const ASSETS = {
   MidSmallMF: { cagr: 17.0, label: 'Mid / Small Cap MF',  color: '#FFB84D', lock: 'None',   taxRule: 'LTCG_EQUITY',       note: '7yr+ horizon. LTCG above ₹1.25L at 10%.' },
   Stocks:     { cagr: 15.0, label: 'Direct Stocks',       color: '#fb923c', lock: 'None',   taxRule: 'LTCG_EQUITY',       note: 'LTCG/STCG. High research required.' },
   RealEstate: { cagr: 9.5,  label: 'Real Estate',         color: '#f472b6', lock: '5yr+',   taxRule: 'LTCG_PROPERTY',     note: 'LTCG 20% with indexation. Sec 54 if reinvested.' },
-  Bitcoin:    { cagr: 35.0, label: 'Bitcoin / Crypto',    color: '#E84040', lock: 'None',   taxRule: 'CRYPTO',            note: '30% flat + 1% TDS. No loss set-off.' },
+  Bitcoin:    { cagr: 35.0, label: 'Bitcoin / Crypto',    color: '#E84040', lock: 'None',   taxRule: 'CRYPTO',            note: '30% flat + 1% TDS. No loss set-off. ⚠️ EXTREME RISK: 35% is a long-run historical average that includes 80%+ drawdown periods. Do not use for planning without understanding full loss potential.' },
 };
 
 // ─── NEW: HRA EXEMPTION HELPER (Sec 10(13A)) ─────────────────────────────────
@@ -197,7 +197,9 @@ export function compute44ADA(grossReceipts = 0) {
 
 /** Section 44AB: true if turnover triggers mandatory tax audit */
 export function requires44AB({ businessTurnover = 0, fnoTurnover = 0, isDigital = false }) {
-  const threshold = isDigital ? 10_000_000 : 1_000_000; // ₹10Cr digital / ₹1Cr cash
+  // ₹1Cr = 10_000_000  |  ₹10Cr = 100_000_000
+  // Previous bug: values were 10_000_000/1_000_000 (10x too small — triggered audit at ₹10L/₹1Cr instead of ₹1Cr/₹10Cr)
+  const threshold = isDigital ? 100_000_000 : 10_000_000; // ₹10Cr digital / ₹1Cr cash
   return (businessTurnover > threshold) || (fnoTurnover > threshold);
 }
 
@@ -355,7 +357,7 @@ export function computeMultiIncomeTax(
   const oldTotal  = oldOrdinary.tax + specialTax;
   const bestIsNew = newTotal <= oldTotal;
 
-  const newSlabRate = getMarginalRate(ordinaryGross, 'new');
+  const newSlabRate = getMarginalRate(newOrdinary.taxableIncome, 'new');  // FIX: was ordinaryGross (pre-₹75K std deduction) — must use post-deduction taxable
   const oldSlabRate = getMarginalRate(oldOrdinary.taxableIncome, 'old');
 
   const auditRequired = requires44AB({
@@ -480,7 +482,7 @@ const TEMPLATES = {
   Conservative:     [['PPF',25],['FD',20],['NPS',20],['DebtMF',15],['SGB',10],['SavingsAcc',10]],
   Moderate:         [['ELSS',20],['IndexMF',20],['PPF',15],['NPS',15],['SGB',15],['FD',15]],
   Aggressive:       [['IndexMF',25],['LargeCapMF',20],['MidSmallMF',15],['ELSS',15],['SGB',10],['Stocks',10],['RealEstate',5]],
-  'Very Aggressive':[['MidSmallMF',20],['Stocks',20],['IndexMF',20],['Bitcoin',10],['SGB',10],['ELSS',10],['RealEstate',10]],
+  'Very Aggressive':[['MidSmallMF',20],['Stocks',20],['IndexMF',20],['Bitcoin',5],['SGB',15],['ELSS',10],['RealEstate',10]],
 };
 const TAX_OPT = [['ELSS',25],['NPS',20],['PPF',25],['IndexMF',15],['SGB',15]];
 
@@ -551,6 +553,12 @@ export function getRiskProfile(age, occupation, income, savings) {
   if(low.includes(occupation))s+=10;else if(mid.includes(occupation))s+=18;else if(high.includes(occupation))s+=25;else s+=12;
   const r=income>0?savings/income:0;
   if(r>=0.4)s+=20;else if(r>=0.25)s+=14;else s+=7;
+  // 4th axis: absolute income level — higher income = more financial cushion to absorb losses
+  // Previously missing: a ₹2.4L earner and a ₹30L earner with identical savings ratios scored identically
+  if(income>=3_000_000)s+=8;       // ₹30L+ — strong loss-absorption buffer
+  else if(income>=1_500_000)s+=5;  // ₹15L+
+  else if(income>=600_000)s+=2;    // ₹6L+
+  // below ₹6L — no bonus; caution is warranted regardless of ratio
   if(s<=35)return{score:s,label:'Conservative',  color:'#4A9EE8'};
   if(s<=55)return{score:s,label:'Moderate',       color:'#E8921A'};
   if(s<=70)return{score:s,label:'Aggressive',     color:'#fb923c'};
