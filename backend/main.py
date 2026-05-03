@@ -13,6 +13,7 @@ NEW in v4:
 import os
 import logging
 import time
+from mangum import Mangum
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -448,3 +449,4 @@ async def tax_advisor(request: Request, req: AIAdvisorRequest):
     msg = c.messages.create(model="claude-sonnet-4-20250514",max_tokens=600,
                              system=SYS+ctx,messages=[{"role":"user","content":req.question}])
     return {"answer":msg.content[0].text}
+handler = Mangum(app)
